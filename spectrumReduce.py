@@ -1,24 +1,17 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
 A class to load the data from a gravity .astrored file.
 @author: mnowak
 """
 
-LOCAL_SYSTEM = 'denebola' # the name of the local system, used to avoid interactive behavior on remote machines 
-
-import os
-if os.uname()[1] == LOCAL_SYSTEM:
-    import matplotlib.pyplot as plt
-    plt.ion()
-else:
-    import matplotlib as mpl
-    mpl.use('Agg')    
-    import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
+plt.ion()
 
 import numpy as np
 import scipy.signal
 import scipy.special
+import scipy.linalg
 import astropy.io.fits as fits
 from astropy import units as u 
 import patiencebar
@@ -27,25 +20,53 @@ import cleanGravity as gravity
 from cleanGravity import complexstats as cs
 from cleanGravity import gravityPlot
 import glob
-import exosed
+import yaml
+import sys, os
 
 star_diameter = 0.03#
 star_diameter = star_diameter/360.0/3600.0/1000.0*2*np.pi # convert to rad
 
-#data = np.loadtxt("spectrum.txt").T
-#star = data[:, 1]/S
+# arg should be the path to tge config yal file
+args = sys.argv
+if len(args) != 2:
+    raise Exception("This script takes exactly one argument which should be the path_to_config.yal")
 
-fake = False
-goFast = True
+CONFIG_FILE = args[1]
+if not(os.path.isfile(args[1])):
+    raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
+
+
+# READ THE CONFIGURATION FILE
+cfg = yaml.load(open(CONFIG_FILE, "r"))
+DATA_DIR = cfg["general"]["datadir"]
+CONTRAST_FILE = cfg["general"]["contrast_file"]
+NO_INV = cfg["general"]["no_inv"]
+GO_FAST = cfg["general"]["go_fast"]
+SAVEFIG = cfg["general"]["save_fig"]
+PLANET_FILES = [DATA_DIR+cfg["planet_ois"][k]["filename"] for k in cfg["general"]["reduce"]] # list of files corresponding to planet exposures
+STAR_ORDER = cfg["general"]["star_order"]
+N_OPD = cfg["general"]["n_opd"]
+N_RA = cfg["general"]["n_ra"]
+N_DEC = cfg["general"]["n_dec"]
+RA_LIM = cfg["general"]["ra_lim"]
+DEC_LIM = cfg["general"]["dec_lim"]
+
+# extract list of useful star ois from the list indicated in the star_indices fields of the config file:
+star_indices = []
+for k in cfg["general"]["reduce"]:
+    star_indices = star_indices+cfg["planet_ois"][k]["star_indices"]
+star_indices = list(set(star_indices)) # remove duplicates
+STAR_FILES = [DATA_DIR+cfg["star_ois"][k]["filename"] for k in star_indices]
+
 
 
 # HD206893
-datadir = "/data1/gravity/HD206893/2019-07-17/"
+datadir = "/home/mcn35/2018-09-21_allwavelengths/"
 #datadir = "/data1/gravity/PDS70/"
 datafiles = glob.glob(datadir+'/GRAVI*astrored*.fits')
 datafiles.sort()
-ra = np.array([130.85151515, 131.05353535, 131.25555556, 130.85151515])
-dec = np.array([197.82747475, 197.72646465, 197.32242424, 198.02949495])
+#ra = np.array([130.85151515, 131.05353535, 131.25555556, 130.85151515])
+#dec = np.array([197.82747475, 197.72646465, 197.32242424, 198.02949495])
 
 #ra = np.array([127.31616162, 127.31616162, 127.01313131, 126.81111111, 127.01313131])
 #dec = np.array([199.03959596, 198.73656566, 199.34262626, 199.54464646, 199.54464646])
@@ -53,6 +74,17 @@ dec = np.array([197.82747475, 197.72646465, 197.32242424, 198.02949495])
 #ra = np.array([130.85151515, 131.05353535, 131.25555556, 130.85151515])*0+131.00
 #dec = np.array([197.82747475, 197.72646465, 197.32242424, 198.02949495])*0+197.72
 
+ra = [68.48]*17
+dec = [126.31]*17
+
+#ra = [145.6]*17
+#dec = [249.15]*17
+
+astrometry = np.loadtxt("/home/mcn35/astrometry.txt")
+ra = astrometry[:, 0]
+dec = astrometry[:, 1]
+
+"""
 star_spectrum="./sylvestre/lte076-4.0-0.0a+0.0.BT-NextGen.7"
 d = open(star_spectrum, "r")
 lines=d.readlines()[10:99900]
@@ -70,9 +102,9 @@ else:
 val[:,0]*=1e-4
 val=val[val[:,0]>1.5]
 val=val[val[:,0]<2.8]
-starSpectrum = exosed.Spectrum(val[:, 0], val[:, 1])
+#starSpectrum = exosed.Spectrum(val[:, 0], val[:, 1])
 
-"""
+
 # beta pic
 datafiles = glob.glob('./betaPictoris/2018-09-21_allwavelengths/GRAVI*astrored*.fits')
 datafiles.sort()
@@ -98,10 +130,11 @@ objOis = []
 sFluxOis = []
 oFluxOis = []
 
-for k in range(len(datafiles)):
-    filename = datafiles[k]
+# LOAD DATA
+for filename in PLANET_FILES+STAR_FILES:
     oi = gravity.GravityDualfieldAstrored(filename, corrMet = "sylvestre", extension = 10, opdDispCorr = "sylvestre")
-    if (goFast):
+    # replace data by the mean over all DITs if go_fast has been requested in the config file
+    if (GO_FAST):
         oi.computeMean()        
         oi.visOi.recenterPhase(oi.sObjX, oi.sObjY)
         visData = np.copy(oi.visOi.visData, 'complex')
@@ -126,57 +159,37 @@ for k in range(len(datafiles)):
         oi.ndit = 1
         oi.visOi.recenterPhase(-oi.sObjX, -oi.sObjY)        
     oi.computeMean()
-    if oi.sObjX**2+oi.sObjY**2 < 10:
-        oi.visOi.computeMean()
-        starOis.append(oi)
-    else:
-        oi.visOi.computeMean()        
+    if (GO_FAST):
+        oi.visOi.visErr = np.zeros([1, oi.visOi.nchannel, oi.nwav], 'complex')    
+        oi.visOi.visErr[0, :, :] = np.copy(oi.visOi.visErrMean)
+    if filename in PLANET_FILES:
         objOis.append(oi)
+    else:
+        starOis.append(oi)
 
+# calculate the very useful w for plotting
 oi = objOis[0]
-oi.visOi.visRef = oi.visOi.visRef
+w = np.zeros([oi.visOi.nchannel, oi.nwav])
+for c in range(oi.visOi.nchannel):
+    w[c, :] = oi.wav*1e6
 
-objOis = objOis[0:2]+objOis[3:]
-#objOis = objOis[0:-1]
-
-# PDS70
-#ra = [-215.02]*6
-#dec = [32.34]*6
-
-#ra = [126.9]*len(objOis)
-#dec = [200.5]*len(objOis)
-
-chromatic_coefficients = np.load("chromatic_coefficients.npy")
-
-# PDS70
-#data = np.loadtxt("SpeX_SED.txt", skiprows = 1)
-#star_wav = data[:, 0]
-#star_spectrum = data[:, 1]
-
-#star_wav = objOis[0].wav*1e6
-#star_spectrum = np.ones(objOis[0].nwav)
-
-
-# create visRefs
+# create visRefs fromn star_indices indicated in the config file
 visRefs = [oi.visOi.visRefMean*0 for oi in objOis]
 ampRefs = [oi.visOi.visRefMean*0 for oi in objOis]
 for k in range(len(objOis)):
-    oi = objOis[k]
-    oiAfter = oi.getClosestOi(starOis, forceAfter = True)
-    oiBefore = oi.getClosestOi(starOis, forceBefore = True)
-    visRefs[k] = 0.5*(oiAfter.visOi.visRefMean + oiBefore.visOi.visRefMean)
-    ampRefs[k] = 0.5*(np.abs(oiAfter.visOi.visRefMean) + np.abs(oiBefore.visOi.visRefMean))
-
-totalVisRef = oi.visOi.visRefMean*0
-for k in range(len(starOis)):
-    oi = starOis[k]
-    totalVisRef = totalVisRef + oi.visOi.visRefMean
-totalVisRef = totalVisRef/len(starOis)
+    planet_ind = cfg["general"]["reduce"][k]
+    for ind in cfg["planet_ois"][planet_ind]["star_indices"]:
+        # not all star files have ben loaded, so we cannot trust the order and we need to explicitly look for the correct one
+        starOis_ind = [soi.filename for soi in starOis].index(DATA_DIR+cfg["star_ois"][ind]["filename"]) 
+        soi = starOis[starOis_ind]
+        visRefs[k] = visRefs[k]+soi.visOi.visRefMean
+        ampRefs[k] = ampRefs[k]+np.abs(soi.visOi.visRefMean)
+    visRefs[k] = visRefs[k]/len(cfg["planet_ois"][k]["star_indices"])
+    ampRefs[k] = ampRefs[k]/len(cfg["planet_ois"][k]["star_indices"])
 
 # subtract the reference phase to each OB
 for k in range(len(objOis)):
     oi = objOis[k]
-#    oi.visOi.addPhase(-np.angle(totalVisRef))
     oi.visOi.addPhase(-np.angle(visRefs[k]))
 
 # calculate the phi values
@@ -246,15 +259,6 @@ for k in range(len(objOis)):
     W_obs.append(cs.cov(visRef.T))
     Z_obs.append(cs.pcov(visRef.T))
 
-# fake data
-if fake == True:
-    for k in range(len(objOis)):
-        oi = objOis[k]
-        for dit in range(oi.visOi.ndit):
-            for c in range(oi.visOi.nchannel):
-                oi.visOi.visRef[dit, c, :] = oi.visOi.visRef[dit, c, :] - np.dot(oi.visOi.p_matrices[dit, c, :, :], oi.visOi.visRef[dit, c, :])
-                oi.visOi.visRef[dit, c, :] = oi.visOi.visRef[dit, c, :] + S*np.abs(ampRefs[k][c, :]) 
-        oi.visOi.visRefMean = oi.visOi.visRef.mean(axis = 0)
 
 # calculate all H matrices
 pbar = patiencebar.Patiencebar(title = "Calculating H matrices", valmax = len(objOis))
@@ -265,7 +269,8 @@ for k in range(len(objOis)):
     oi.visOi.m = np.zeros([oi.visOi.ndit, oi.visOi.nchannel])
     for dit in range(oi.visOi.ndit):
         for c in range(oi.visOi.nchannel):
-            (G, d, H) = np.linalg.svd(oi.visOi.p_matrices[dit, c, :, :])
+            print(c)
+            (G, d, H) = np.linalg.svd(oi.visOi.p_matrices[dit, c, :, :]) # scipy faster but different result?
             D = np.diag(d)
             oi.visOi.h_matrices[dit, c, :, :] = H
             m = int(np.sum(d))
@@ -280,17 +285,19 @@ inj_coeffs = None
 
 
 # calculate chromatic coupling from coefficients and fiber offset
+"""
 sObjX = np.array([oi.sObjX for oi in objOis])
 sObjY = np.array([oi.sObjY for oi in objOis])
 offsets = np.sqrt((ra - sObjX)**2+(dec - sObjY)**2)
+"""
 chromatic_coupling = np.zeros([len(objOis), objOis[0].nwav])
-ref_coupling = np.polyval(chromatic_coefficients[0, ::-1], 0)
+ref_coupling = 1#np.polyval(chromatic_coefficients[0, ::-1], 0)
 for k in range(len(objOis)):
-    offset = offsets[k]
-    a0 = np.polyval(chromatic_coefficients[0, ::-1], offset)
-    a1 = np.polyval(chromatic_coefficients[1, ::-1], offset)
-    a2 = np.polyval(chromatic_coefficients[2, ::-1], offset)
-    chromatic_coupling[k, :] = np.polyval([a2/ref_coupling, a1/ref_coupling, a0/ref_coupling], objOis[k].wav*1e6 - 2.2)
+   # offset = offsets[k]
+   # a0 = np.polyval(chromatic_coefficients[0, ::-1], offset)
+   # a1 = np.polyval(chromatic_coefficients[1, ::-1], offset)
+   # a2 = np.polyval(chromatic_coefficients[2, ::-1], offset)
+    chromatic_coupling[k, :] = 1#np.polyval([a2/ref_coupling, a1/ref_coupling, a0/ref_coupling], objOis[k].wav*1e6 - 2.2)
 
 # calculate the resolved stellar visibility function
 resolved_star_models = []
@@ -336,32 +343,65 @@ nwav = objOis[0].nwav
 nb = objOis[0].visOi.nchannel
 Omega = np.zeros([nb*nwav, nb*nwav], 'complex64')    
 
+import time
+t0 = time.time()
 for k in range(len(objOis)):
     oi = objOis[k]
+    nchannel = oi.visOi.nchannel
     for dit in range(oi.visOi.ndit):
         pbar.update()
         this_dit_mtot = 0
-        for c in range(oi.visOi.nchannel):        
+        for c in range(nchannel):        
             m = int(oi.visOi.m[dit, c])
             this_dit_mtot = this_dit_mtot + m
-        W_elem = W_obs[k][0:this_dit_mtot, 0:this_dit_mtot]
-        Z_elem = Z_obs[k][0:this_dit_mtot, 0:this_dit_mtot]
+#        W_elem = W_obs[k][0:this_dit_mtot, 0:this_dit_mtot]
+#        Z_elem = Z_obs[k][0:this_dit_mtot, 0:this_dit_mtot]
         this_r = 0
+        print(0)
         H_elem = np.zeros([this_dit_mtot, oi.visOi.nchannel*oi.nwav], 'complex64')        
-        for c in range(oi.visOi.nchannel):
-            Omega[c*oi.nwav:(c+1)*oi.nwav, c*oi.nwav:(c+1)*oi.nwav] = np.diag(oi.visOi.phi_values[dit, c, :])
+        W_elem = np.zeros([this_dit_mtot, this_dit_mtot], 'complex64')
+        W2_elem_inv = np.zeros([2*this_dit_mtot, 2*this_dit_mtot], 'complex64')
+        Z_elem = np.zeros([this_dit_mtot, this_dit_mtot], 'complex64')
+        for c in range(nchannel):
+            print(c)
+            Omega_c_sp = scipy.sparse.csc_matrix(np.diag(oi.visOi.phi_values[dit, c, :]))
+            Omega[c*oi.nwav:(c+1)*oi.nwav, c*oi.nwav:(c+1)*oi.nwav] = Omega_c_sp.todense()
             m = int(oi.visOi.m[dit, c])            
-            H_elem[this_r:this_r+m, c*oi.nwav:(c+1)*nwav] = oi.visOi.h_matrices[dit, c, 0:m, :]
+            H_elem_c_sp = scipy.sparse.csc_matrix(oi.visOi.h_matrices[dit, c, 0:m, :])
+            H_elem[this_r:this_r+m, c*oi.nwav:(c+1)*nwav] = H_elem_c_sp.todense()
+            Wc_sp = scipy.sparse.csr_matrix(np.diag(oi.visOi.visErr[dit, c, :].real**2+oi.visOi.visErr[dit, c, :].imag**2))
+            Zc_sp = scipy.sparse.csr_matrix(np.diag(oi.visOi.visErr[dit, c, :].real**2-oi.visOi.visErr[dit, c, :].imag**2))
+            Wc_sp = (Omega_c_sp.dot(Wc_sp)).dot(cs.adj(Omega_c_sp))
+            Zc_sp = (Omega_c_sp.dot(Zc_sp)).dot(Omega_c_sp.T)
+            W_elem_c = np.dot((H_elem_c_sp.dot(Wc_sp)).todense(), cs.adj(H_elem_c_sp).todense())
+            Z_elem_c = np.dot((H_elem_c_sp.dot(Zc_sp)).todense(), H_elem_c_sp.T.todense())
+            W_elem[this_r:this_r+m, this_r:this_r+m] = W_elem_c
+            Z_elem[this_r:this_r+m, this_r:this_r+m] = Z_elem_c
+            W2_elem_c = cs.extended_covariance(W_elem_c, Z_elem_c)
+            W2_elem_c_inv = np.linalg.inv(W2_elem_c)
+            W2_elem_inv[this_r:this_r+m, this_r:this_r+m] = W2_elem_c_inv[0:m, 0:m]
+            W2_elem_inv[this_r:this_r+m, this_dit_mtot+this_r:this_dit_mtot+this_r+m] = W2_elem_c_inv[0:m, m:2*m]
+            W2_elem_inv[this_dit_mtot+this_r:this_dit_mtot+this_r+m, this_r:this_r+m] = W2_elem_c_inv[m:2*m, 0:m]
+            W2_elem_inv[this_dit_mtot+this_r:this_dit_mtot+this_r+m, this_dit_mtot+this_r:this_dit_mtot+this_r+m] = W2_elem_c_inv[m:2*m, m:2*m]
             this_r = this_r+m
-        Rcov = np.diag(oi.visOi.visErr[dit, :, :].real.reshape(oi.nwav*oi.visOi.nchannel))**2
-        Icov = np.diag(oi.visOi.visErr[dit, :, :].imag.reshape(oi.nwav*oi.visOi.nchannel))**2     
-        W_dit = np.dot(np.dot(Omega, Rcov+Icov), cs.adj(Omega))
-        Z_dit = np.dot(np.dot(Omega, Rcov-Icov), Omega.T)        
-        W_elem = np.dot(np.dot(H_elem, W_dit), cs.adj(H_elem))
-        Z_elem = np.dot(np.dot(H_elem, Z_dit), H_elem.T)        
-        W2_elem = cs.extended_covariance(W_elem, Z_elem)                         
-        W2_elem_inv = np.linalg.inv(W2_elem)
-        [A, B, C, D] = [W2_elem_inv[0:this_dit_mtot, 0:this_dit_mtot], W2_elem_inv[0:this_dit_mtot, this_dit_mtot:], W2_elem_inv[this_dit_mtot:, 0:this_dit_mtot], W2_elem_inv[this_dit_mtot:, this_dit_mtot:]]        
+#        Omega_sp = scipy.sparse.csc_matrix(Omega)
+#        H_elem_sp = scipy.sparse.csc_matrix(H_elem)
+#        Rcov = np.diag(oi.visOi.visErr[dit, :, :].real.reshape(oi.nwav*oi.visOi.nchannel)**2)
+#        Icov = np.diag(oi.visOi.visErr[dit, :, :].imag.reshape(oi.nwav*oi.visOi.nchannel)**2)  
+#        W_dit = np.dot(np.dot(Omega, Rcov+Icov), cs.adj(Omega))
+#        Z_dit = np.dot(np.dot(Omega, Rcov-Icov), Omega.T)      
+#        W_dit = np.dot(np.dot(Omega, W_dit), cs.adj(Omega))
+#        Z_dit = np.dot(np.dot(Omega, Z_dit), cs.adj(Omega))
+#        W_elem = np.dot(np.dot(H_elem, W_dit), cs.adj(H_elem))
+#        Z_elem = np.dot(np.dot(H_elem, Z_dit), H_elem.T)
+#        W2_elem = cs.extended_covariance(W_elem, Z_elem)                         
+#        W2_elem_sp = scipy.sparse.csc_matrix(W2_elem)
+#        W2invA2 = np.zeros([2*oi.nwav, 2*STAR_ORDER+1], 'complex')
+#        ZZ, _ = lapack.dpotrf(W2)
+#        T, info = lapack.dpotri(ZZ)
+#        W2_elem_inv = np.triu(T) + np.triu(T, k=1).T
+#        W2_elem_inv = np.linalg.inv(W2_elem)
+        [A, B, C, D] = [W2_elem_inv[0:this_dit_mtot, 0:this_dit_mtot], W2_elem_inv[0:this_dit_mtot, this_dit_mtot:], W2_elem_inv[this_dit_mtot:, 0:this_dit_mtot], W2_elem_inv[this_dit_mtot:, this_dit_mtot:]]
         W2invH2[r:r+this_dit_mtot, :] = np.dot(A, H[r:r+this_dit_mtot])+np.dot(B, H[r:r+this_dit_mtot].conj())
         W2invH2[mtot+r:mtot+r+this_dit_mtot, :] = np.dot(C, H[r:r+this_dit_mtot])+np.dot(D, H[r:r+this_dit_mtot].conj())
         covU2W2invH2[r:r+this_dit_mtot, :] = np.dot(W_elem, W2invH2[r:r+this_dit_mtot, :]) + np.dot(Z_elem, W2invH2[mtot+r:r+mtot+this_dit_mtot, :])
@@ -369,7 +409,7 @@ for k in range(len(objOis)):
         pcovU2W2invH2[r:r+this_dit_mtot, :] = np.dot(Z_elem, W2invH2[r:r+this_dit_mtot, :]) + np.dot(W_elem, W2invH2[mtot+r:r+mtot+this_dit_mtot, :])
         pcovU2W2invH2[mtot+r:mtot+r+this_dit_mtot, :] = np.dot(cs.adj(W_elem), W2invH2[r:r+this_dit_mtot, :]) + np.dot(np.conj(Z_elem), W2invH2[mtot+r:r+mtot+this_dit_mtot, :]) 
         r = r+this_dit_mtot
-
+print(time.time()-t0)
 
 # calculate spectrum
 A = np.real(np.dot(cs.adj(U2), W2invH2))
@@ -383,8 +423,8 @@ Cerr = np.dot(B, np.dot(0.5*np.real(covU2+pcovU2), B.T))
 
 # spectrum calibration for plot
 wav_grav = oi.wav*1e6
-(starWav, starFlux) = exosed.utilities.convertSpectrum(starSpectrum, instrument = 'gravity-midres', resolution = 200000)
-star = np.interp(wav_grav, starWav, starFlux)
+#(starWav, starFlux) = exosed.utilities.convertSpectrum(starSpectrum, instrument = 'gravity-midres', resolution = 200000)
+#star = np.interp(wav_grav, starWav, starFlux)
 
 diagErrors = np.array([Cerr[k, k] for k in range(len(C))])**0.5
 
@@ -394,7 +434,7 @@ ax1 = fig.add_subplot(211)
 ax1.errorbar(wav_grav, C, yerr = diagErrors, fmt = '.')
 
 ax2 = fig.add_subplot(212, sharex = ax1)
-ax2.errorbar(wav_grav, C*star, yerr = diagErrors*star, fmt = '.')
+#ax2.errorbar(wav_grav, C*star, yerr = diagErrors*star, fmt = '.')
 
 ax1.set_xlabel("Wavelength ($\mu\mathrm{m}$)")
 ax2.set_xlabel("Wavelength ($\mu\mathrm{m}$)")
@@ -409,6 +449,8 @@ data[:, 0] = wav
 data[:, 1] = np.dot(A, B)
 #np.savetxt("betapicb_contrast.txt", data)
 #np.savetxt("betapicb_errors.txt", Cerr)
+
+stop
 
 """
 data = np.loadtxt('results_5648/betapicb_contrast.txt')
