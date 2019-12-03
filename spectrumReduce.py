@@ -58,6 +58,9 @@ for k in cfg["general"]["reduce"]:
 star_indices = list(set(star_indices)) # remove duplicates
 STAR_FILES = [DATA_DIR+cfg["star_ois"][k]["filename"] for k in star_indices]
 
+# extract the astrometric solutions
+RA_SOLUTIONS = [cfg["planet_ois"][k]["astrometric_solution"][0] for k in cfg["general"]["reduce"]]
+DEC_SOLUTIONS = [cfg["planet_ois"][k]["astrometric_solution"][1] for k in cfg["general"]["reduce"]]
 
 
 # HD206893
@@ -74,15 +77,10 @@ datafiles.sort()
 #ra = np.array([130.85151515, 131.05353535, 131.25555556, 130.85151515])*0+131.00
 #dec = np.array([197.82747475, 197.72646465, 197.32242424, 198.02949495])*0+197.72
 
-ra = [68.48]*17
-dec = [126.31]*17
 
-#ra = [145.6]*17
-#dec = [249.15]*17
-
-astrometry = np.loadtxt("/home/mcn35/astrometry.txt")
-ra = astrometry[:, 0]
-dec = astrometry[:, 1]
+#astrometry = np.loadtxt("/home/mcn35/astrometry.txt")
+#ra = astrometry[:, 0]
+#dec = astrometry[:, 1]
 
 """
 star_spectrum="./sylvestre/lte076-4.0-0.0a+0.0.BT-NextGen.7"
@@ -196,7 +194,7 @@ for k in range(len(objOis)):
 for k in range(len(objOis)):
     oi = objOis[k]
     oi.visOi.phi_values = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], 'complex64')
-    this_u = (ra[k]*oi.visOi.uCoord + dec[k]*oi.visOi.vCoord)/1e7
+    this_u = (RA_SOLUTIONS[k]*oi.visOi.uCoord + DEC_SOLUTIONS[k]*oi.visOi.vCoord)/1e7
     phase = 2*np.pi*this_u*1e7/3600.0/360.0/1000.0*2*np.pi
     for dit in range(oi.visOi.ndit):
         for c in range(oi.visOi.nchannel):
@@ -238,7 +236,7 @@ for k in range(len(objOis)):
 # change frame
 for k in range(len(objOis)):
     oi = objOis[k]
-    oi.visOi.recenterPhase(ra[k], dec[k], radec = True)
+    oi.visOi.recenterPhase(RA_SOLUTIONS[k], DEC_SOLUTIONS[k], radec = True)
 
 # project visibilities
 for k in range(len(objOis)):
@@ -269,7 +267,6 @@ for k in range(len(objOis)):
     oi.visOi.m = np.zeros([oi.visOi.ndit, oi.visOi.nchannel])
     for dit in range(oi.visOi.ndit):
         for c in range(oi.visOi.nchannel):
-            print(c)
             (G, d, H) = np.linalg.svd(oi.visOi.p_matrices[dit, c, :, :]) # scipy faster but different result?
             D = np.diag(d)
             oi.visOi.h_matrices[dit, c, :, :] = H
@@ -357,13 +354,11 @@ for k in range(len(objOis)):
 #        W_elem = W_obs[k][0:this_dit_mtot, 0:this_dit_mtot]
 #        Z_elem = Z_obs[k][0:this_dit_mtot, 0:this_dit_mtot]
         this_r = 0
-        print(0)
         H_elem = np.zeros([this_dit_mtot, oi.visOi.nchannel*oi.nwav], 'complex64')        
         W_elem = np.zeros([this_dit_mtot, this_dit_mtot], 'complex64')
         W2_elem_inv = np.zeros([2*this_dit_mtot, 2*this_dit_mtot], 'complex64')
         Z_elem = np.zeros([this_dit_mtot, this_dit_mtot], 'complex64')
         for c in range(nchannel):
-            print(c)
             Omega_c_sp = scipy.sparse.csc_matrix(np.diag(oi.visOi.phi_values[dit, c, :]))
             Omega[c*oi.nwav:(c+1)*oi.nwav, c*oi.nwav:(c+1)*oi.nwav] = Omega_c_sp.todense()
             m = int(oi.visOi.m[dit, c])            
@@ -409,7 +404,7 @@ for k in range(len(objOis)):
         pcovU2W2invH2[r:r+this_dit_mtot, :] = np.dot(Z_elem, W2invH2[r:r+this_dit_mtot, :]) + np.dot(W_elem, W2invH2[mtot+r:r+mtot+this_dit_mtot, :])
         pcovU2W2invH2[mtot+r:mtot+r+this_dit_mtot, :] = np.dot(cs.adj(W_elem), W2invH2[r:r+this_dit_mtot, :]) + np.dot(np.conj(Z_elem), W2invH2[mtot+r:r+mtot+this_dit_mtot, :]) 
         r = r+this_dit_mtot
-print(time.time()-t0)
+print("Calculation done in: "+str(time.time()-t0)+"s")
 
 # calculate spectrum
 A = np.real(np.dot(cs.adj(U2), W2invH2))

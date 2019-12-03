@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
 A script to create the index.csv file used to identify star and planet exposures
@@ -9,9 +9,9 @@ import astropy.io.fits as fits
 from datetime import datetime
 import cleanGravity as gravity
 import glob
-import yaml
 import sys
 import os
+from config import dictToYaml#
 
 #PDS70
 #nRa = 400
@@ -24,20 +24,20 @@ import os
 #nDec = 100
 #ra_lim = [126.0-3, 126.0+3]
 #dec_lim = [200-3, 200+3]
-ra_lim = [130.7-5, 130.7+5]
-dec_lim = [198.08-5, 198.08+5]
+#ra_lim = [130.7-5, 130.7+5]
+#dec_lim = [198.08-5, 198.08+5]
 
 # Beta Pic 2019
-nRa = 100
-nDec = 100
-ra_lim = [146.5-2, 146.5+2]
-dec_lim = [248.57-2, 248.57+2]
-
-# Beta Pic 2018
 #nRa = 100
 #nDec = 100
-#ra_lim = [68.48-1.5, 68.48+1.5]
-#dec_lim = [126.2-1.5, 126.2+1.5]
+#ra_lim = [146.5-2, 146.5+2]
+#dec_lim = [248.57-2, 248.57+2]
+
+# Beta Pic 2018
+nRa = 100
+nDec = 100
+ra_lim = [68.48-1.5, 68.48+1.5]
+dec_lim = [126.2-1.5, 126.2+1.5]
 
 args = sys.argv
 if len(args) != 3:
@@ -77,8 +77,8 @@ general = {"datadir": datadir,
            "n_opd": 100,
            "n_ra": 100,
            "n_dec": 100,
-           "ra_lim": [146.5-2, 146.5+2],
-           "dec_lim": [248.57-2, 248.57+2],
+           "ra_lim": ra_lim,
+           "dec_lim": dec_lim,
            "star_order": 3,
            "reduce": list(range(len(objOis)))}
 
@@ -110,16 +110,6 @@ cfg = {"general": general,
        "planet_ois": planet_files,
        "star_ois": star_files
    }
-
-
-def dictToYaml(d, level = 0):
-    if type(d) is dict:
-        res = ""
-        for key in list(d.keys()):
-            res = res+" "*2*level+key+":\n"+dictToYaml(d[key], level = level+1)+"\n"
-        return res
-    else:
-        return " "*2*level+yaml.safe_dump(d).split("\n")[0]
 
 f = open(output, "w")
 f.write(dictToYaml(cfg))

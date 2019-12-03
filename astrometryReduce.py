@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
 A script to extract the astrometry from an exoplanet observation
@@ -23,8 +23,8 @@ from cleanGravity import complexstats as cs
 from cleanGravity import gravityPlot
 from matplotlib.backends.backend_pdf import PdfPages
 import yaml
-import time
 import sys, os
+from config import dictToYaml
 
 # arg should be the path to tge config yal file
 args = sys.argv
@@ -100,6 +100,9 @@ for filename in PLANET_FILES+STAR_FILES:
         oi.ndit = 1
         oi.visOi.recenterPhase(-oi.sObjX, -oi.sObjY)        
     oi.computeMean()
+    if (GO_FAST):
+        oi.visOi.visErr = np.zeros([1, oi.visOi.nchannel, oi.nwav], 'complex')    
+        oi.visOi.visErr[0, :, :] = np.copy(oi.visOi.visErrMean)
     if filename in PLANET_FILES:
         objOis.append(oi)
     else:
@@ -158,7 +161,6 @@ for k in range(len(objOis)):
         opdRanges[k, c, :] = np.linspace(opdLimits[k, c, 0], opdLimits[k, c, 1], N_OPD)
 
 # calculate maps in OPD
-t0 = time.time()
 opdChi2Maps = []
 bestOpdFits = []
 nditsTot = np.sum(np.array([oi.visOi.ndit for oi in objOis]))
@@ -227,7 +229,6 @@ for k in range(len(objOis)):
                     opdChi2Map[dit, c, j] = np.real(np.dot(np.dot(cs.adj(vec), W2inv), vec))
                 fit[c, :] = np.dot(A2, dzeta)[:230]
     opdChi2Maps.append(opdChi2Map)
-print(time.time() - t0)
 
 # calculate the chi2Maps from the OPD maps
 chi2Maps = []
@@ -258,6 +259,16 @@ for k in range(len(objOis)):
 
 print("RA:", np.mean(raBest))
 print("DEC:", np.mean(decBest))
+
+for k in range(len(PLANET_FILES)):
+    ind = cfg["general"]["reduce"][k]
+    cfg["planet_ois"][ind]["astrometric_solution"] = [float(raBest[k]), float(decBest[k])] # YAML cannot convert numpy types
+            
+f = open(CONFIG_FILE, "w")
+f.write(dictToYaml(cfg))
+f.close()
+
+stop
 
 """
 # estimate the distribution of likelihood
