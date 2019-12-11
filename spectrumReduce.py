@@ -14,7 +14,6 @@ import scipy.special
 import scipy.linalg
 import astropy.io.fits as fits
 from astropy import units as u 
-import patiencebar
 from datetime import datetime
 import cleanGravity as gravity
 from cleanGravity import complexstats as cs
@@ -23,18 +22,55 @@ import glob
 import yaml
 import sys, os
 
+### GLOBALS ###
+CONTRAST_FILENAME = "contrast.txt"
+COVARIANCE_FILENAME = "covariance.txt"
+###
+
+def stop():
+    raise Exception("Stop")
+
+def printinf(msg):
+    print("[INFO]: "+msg)
+def printwar(msg):
+    print("[WARNING]: "+msg)
+def printerr(msg):
+    print("[ERROR]: "+msg)
+    stop()
+
 star_diameter = 0.03#
 star_diameter = star_diameter/360.0/3600.0/1000.0*2*np.pi # convert to rad
 
-# arg should be the path to tge config yal file
+# arg should be the path to the config yal file
 args = sys.argv
-if len(args) != 2:
-    raise Exception("This script takes exactly one argument which should be the path_to_config.yal")
-
+if len(args) < 3:
+    printerr("This script takes at least two arguments which should be the path_to_config.yal path_to_output_dir")
+    stop()
+    
 CONFIG_FILE = args[1]
 if not(os.path.isfile(args[1])):
-    raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
+    printerr("Error: argument {} is not a file".format(CONFIG_FILE))
+    stop()
 
+OUTPUT_DIR = args[2]
+# Test if output dir exists
+if not(os.path.isdir(OUTPUT_DIR)):
+    printwar("Output directory {} not found.".format(OUTPUT_DIR))    
+    r = input("[INPUT]: Create it? (y/n).")
+    if not(r.lower() in ['y', 'yes']):
+        printerr("Interrupted by user")
+    os.mkdir(OUTPUT_DIR)    
+else: #if directory aready exits, check for files
+    if os.path.isfile(OUTPUT_DIR+CONTRAST_FILENAME):
+        printwar("A file {} has been found in specified output directory {}, and will be overwritten by this script.".format(CONTRAST_FILENAME, OUTPUT_DIR))
+        r = input("[INPUT]: Do you want to continue? (y/n)")
+        if not(r.lower() in ['y', 'yes']):
+            printerr("Interrupted by user")
+    if os.path.isfile(OUTPUT_DIR+COVARIANCE_FILENAME):
+        printwar("A file {} has been found in specified output directory {}, and will be overwritten by this script.".format(COVARIANCE_FILENAME, OUTPUT_DIR))
+        r = input("[INPUT]: Do you want to continue? (y/n)")
+        if not(r.lower() in ['y', 'yes']):
+            printerr("Interrupted by user")               
 
 # READ THE CONFIGURATION FILE
 cfg = yaml.load(open(CONFIG_FILE, "r"))
@@ -51,6 +87,7 @@ N_DEC = cfg["general"]["n_dec"]
 RA_LIM = cfg["general"]["ra_lim"]
 DEC_LIM = cfg["general"]["dec_lim"]
 
+
 # extract list of useful star ois from the list indicated in the star_indices fields of the config file:
 star_indices = []
 for k in cfg["general"]["reduce"]:
@@ -59,15 +96,27 @@ star_indices = list(set(star_indices)) # remove duplicates
 STAR_FILES = [DATA_DIR+cfg["star_ois"][k]["filename"] for k in star_indices]
 
 # extract the astrometric solutions
-RA_SOLUTIONS = [cfg["planet_ois"][k]["astrometric_solution"][0] for k in cfg["general"]["reduce"]]
-DEC_SOLUTIONS = [cfg["planet_ois"][k]["astrometric_solution"][1] for k in cfg["general"]["reduce"]]
+if len(args) >= 5:
+    ra = [float(args[3])]*len(cfg["general"]["reduce"])
+    dec = [float(args[4])]*len(cfg["general"]["reduce"])
+    printinf("Astrometry provided as arguments. Now using RA={} mas and DEC={} mas for all file.")
+try:
+    RA_SOLUTIONS = [cfg["planet_ois"][k]["astrometric_solution"][0] for k in cfg["general"]["reduce"]]
+    DEC_SOLUTIONS = [cfg["planet_ois"][k]["astrometric_solution"][1] for k in cfg["general"]["reduce"]]
+    printinf("Astrometry extracted from config file {}".format(CONFIG_FILE))
+except:
+    printerr("Could not extract the astrometry from the config file {}".format(CONFIG_FILE))
+    printinf("Please run the script 'astrometryReduce' first, or provide RA DEC values as arguments:")
+    printinf("spectrumReduce.py config.yal ra_value_in_mas dec_value_in_mas")
+    sys.exit()
 
 
+#### deprecated part of the code #####
 # HD206893
-datadir = "/home/mcn35/2018-09-21_allwavelengths/"
+#datadir = "/home/mcn35/2018-09-21_allwavelengths/"
 #datadir = "/data1/gravity/PDS70/"
-datafiles = glob.glob(datadir+'/GRAVI*astrored*.fits')
-datafiles.sort()
+#datafiles = glob.glob(datadir+'/GRAVI*astrored*.fits')
+#datafiles.sort()
 #ra = np.array([130.85151515, 131.05353535, 131.25555556, 130.85151515])
 #dec = np.array([197.82747475, 197.72646465, 197.32242424, 198.02949495])
 
@@ -81,6 +130,8 @@ datafiles.sort()
 #astrometry = np.loadtxt("/home/mcn35/astrometry.txt")
 #ra = astrometry[:, 0]
 #dec = astrometry[:, 1]
+
+#############
 
 """
 star_spectrum="./sylvestre/lte076-4.0-0.0a+0.0.BT-NextGen.7"
@@ -115,12 +166,6 @@ data = hdu.data
 ind = np.where((data[:, 0] < 2.6) & (data[:, 0] > 1.6))[0]
 starSpectrum = exosed.Spectrum(data[ind, 0], data[ind, 1])
 """
-
-order = 3
-
-# PDS70
-#ra = [-215.02]*6
-#dec = [32.34]*6
 
 starOis = []
 objOis = []
@@ -216,14 +261,14 @@ for k in range(len(objOis)):
     oi = objOis[k]
     # calculate the projector
     wav = oi.wav*1e7
-    vectors = np.zeros([order+1, oi.nwav], 'complex64')
+    vectors = np.zeros([STAR_ORDER+1, oi.nwav], 'complex64')
     thisVisRef = visRefs[k]
     thisAmpRef = np.abs(thisVisRef)
     oi.visOi.visStar = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], 'complex64')
     oi.visOi.p_matrices = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav, oi.nwav], 'complex64')
     P = np.zeros([oi.visOi.nchannel, oi.nwav, oi.nwav], 'complex64')
     for c in range(oi.visOi.nchannel):
-        for j in range(order+1):
+        for j in range(STAR_ORDER+1):
             vectors[j, :] = np.abs(thisAmpRef[c, :])*(wav-np.mean(wav))**j # pourquoi ampRef et pas visRef ?
         for l in range(oi.nwav):
             x = np.zeros(oi.nwav)
@@ -259,9 +304,11 @@ for k in range(len(objOis)):
 
 
 # calculate all H matrices
-pbar = patiencebar.Patiencebar(title = "Calculating H matrices", valmax = len(objOis))
+printinf("Starting calculation of H matrices")
+counter = 1
 for k in range(len(objOis)):
-    pbar.update()
+    printinf("Calculating H ({:d}/{:d})".format(counter, len(objOis)))
+    counter = counter+1
     oi = objOis[k]
     oi.visOi.h_matrices = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.visOi.nwav, oi.visOi.nwav], 'complex64')
     oi.visOi.m = np.zeros([oi.visOi.ndit, oi.visOi.nchannel])
@@ -335,18 +382,20 @@ W2invH2 = np.zeros([2*mtot, nwav], 'complex64')
 covU2W2invH2 = np.zeros([2*mtot, nwav], 'complex64')
 pcovU2W2invH2 = np.zeros([2*mtot, nwav], 'complex64')
 r = 0
-pbar = patiencebar.Patiencebar(title = "Calculating W2invH2", valmax = np.sum(np.array([oi.visOi.ndit for oi in objOis])))
 nwav = objOis[0].nwav
 nb = objOis[0].visOi.nchannel
 Omega = np.zeros([nb*nwav, nb*nwav], 'complex64')    
 
 import time
 t0 = time.time()
+printinf("Starting calculation of W2invH2")
+counter = 1
 for k in range(len(objOis)):
     oi = objOis[k]
     nchannel = oi.visOi.nchannel
     for dit in range(oi.visOi.ndit):
-        pbar.update()
+        printinf("Calculating W2invH2 ({:d}/{:d})".format(counter, np.sum(np.array([oi.visOi.ndit for oi in objOis]))))
+        counter = counter+1
         this_dit_mtot = 0
         for c in range(nchannel):        
             m = int(oi.visOi.m[dit, c])
@@ -404,17 +453,42 @@ for k in range(len(objOis)):
         pcovU2W2invH2[r:r+this_dit_mtot, :] = np.dot(Z_elem, W2invH2[r:r+this_dit_mtot, :]) + np.dot(W_elem, W2invH2[mtot+r:r+mtot+this_dit_mtot, :])
         pcovU2W2invH2[mtot+r:mtot+r+this_dit_mtot, :] = np.dot(cs.adj(W_elem), W2invH2[r:r+this_dit_mtot, :]) + np.dot(np.conj(Z_elem), W2invH2[mtot+r:r+mtot+this_dit_mtot, :]) 
         r = r+this_dit_mtot
-print("Calculation done in: "+str(time.time()-t0)+"s")
+printinf("Calculation done in: "+str(time.time()-t0)+"s")
 
 # calculate spectrum
+printinf("Calculating contrast spectrum")
 A = np.real(np.dot(cs.adj(U2), W2invH2))
 B = np.linalg.inv(np.real(np.dot(cs.adj(H2), W2invH2)))
 C = np.dot(A, B)
 
 # calculate errors
+printinf("Calculating covariance matrix")
 covU2 = np.dot(cs.adj(W2invH2), covU2W2invH2)
 pcovU2 = np.dot(W2invH2.T, pcovU2W2invH2)
 Cerr = np.dot(B, np.dot(0.5*np.real(covU2+pcovU2), B.T))
+
+# save raw contrast spectrum and diagonal error terms in a file
+printinf("Writting spectrum in file")
+f = open(OUTPUT_DIR+"/"+CONTRAST_FILENAME, 'w')
+f.write("File created automatically by script "+args[0]+" on "+datetime.utcnow().strftime("%Y-%d-%MT%H:%m:%SZ")+"\n")
+f.write("Wav(um) Flux(10W/m/cm2) Error(W/m2)\n")
+for k in range(len(C)):
+    f.write("{:.4e} {:.4e} {:.4e}\n".format(w[0, k], C[k], np.sqrt(Cerr[k, k])))
+f.close()
+
+# save the full covariance matrix
+printinf("Writting covariance matrix in file")
+f = open(OUTPUT_DIR+"/"+COVARIANCE_FILENAME, 'w')
+f.write("File created automatically by script "+args[0]+" on "+datetime.utcnow().strftime("%Y-%d-%MT%H:%m:%SZ")+"\n")
+f.write("Covariance matrix (W2/m4)\n")
+for k in range(len(C)):
+    for j in range(len(C)):
+        f.write('{:.8e} '.format(Cerr[k, j]))
+    f.write('\n')
+f.close()
+
+stop
+
 
 # spectrum calibration for plot
 wav_grav = oi.wav*1e6

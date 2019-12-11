@@ -20,12 +20,12 @@ from config import dictToYaml#
 #dec_lim = [32.3-1.5, 32.3+1.5]
 
 # HD206893
-#nRa = 100
-#nDec = 100
+nRa = 100
+nDec = 100
 #ra_lim = [126.0-3, 126.0+3]
 #dec_lim = [200-3, 200+3]
-#ra_lim = [130.7-5, 130.7+5]
-#dec_lim = [198.08-5, 198.08+5]
+ra_lim = [130.7-5, 130.7+5]
+dec_lim = [198.08-5, 198.08+5]
 
 # Beta Pic 2019
 #nRa = 100
@@ -34,10 +34,10 @@ from config import dictToYaml#
 #dec_lim = [248.57-2, 248.57+2]
 
 # Beta Pic 2018
-nRa = 100
-nDec = 100
-ra_lim = [68.48-1.5, 68.48+1.5]
-dec_lim = [126.2-1.5, 126.2+1.5]
+#nRa = 100
+#nDec = 100
+#ra_lim = [68.48-1.5, 68.48+1.5]
+#dec_lim = [126.2-1.5, 126.2+1.5]
 
 args = sys.argv
 if len(args) != 3:
