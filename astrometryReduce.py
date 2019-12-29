@@ -25,31 +25,43 @@ from matplotlib.backends.backend_pdf import PdfPages
 import yaml
 import sys, os
 from config import dictToYaml
+from utils import *
 
 # arg should be the path to tge config yal file
-args = sys.argv
-if len(args) != 2:
-    raise Exception("This script takes exactly one argument which should be the path_to_config.yal")
+dargs = args_to_dict(sys.argv)
 
-CONFIG_FILE = args[1]
-if not(os.path.isfile(args[1])):
+REQUIRED_ARGS = ["config_file"]
+for req in REQUIRED_ARGS:
+    if not(req in dargs.keys()):
+        printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
+        stop()
+
+CONFIG_FILE = dargs["config_file"]
+if not(os.path.isfile(CONFIG_FILE)):
     raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
 
 
 # READ THE CONFIGURATION FILE
 cfg = yaml.load(open(CONFIG_FILE, "r"))
 DATA_DIR = cfg["general"]["datadir"]
+PHASEREF_MODE = cfg["general"]["phaseref_mode"]
 CONTRAST_FILE = cfg["general"]["contrast_file"]
 NO_INV = cfg["general"]["no_inv"]
 GO_FAST = cfg["general"]["go_fast"]
 SAVEFIG = cfg["general"]["save_fig"]
 PLANET_FILES = [DATA_DIR+cfg["planet_ois"][k]["filename"] for k in cfg["general"]["reduce"]] # list of files corresponding to planet exposures
+if not("swap_ois" in cfg.keys()):
+    SWAP_FILES = []
+elif cfg["swap_ois"] is None:
+    SWAP_FILES = []
+else:
+    SWAP_FILES = [DATA_DIR+cfg["swap_ois"][k]["filename"] for k in cfg["swap_ois"].keys()]
 STAR_ORDER = cfg["general"]["star_order"]
 N_OPD = cfg["general"]["n_opd"]
 N_RA = cfg["general"]["n_ra"]
 N_DEC = cfg["general"]["n_dec"]
-RA_LIM = cfg["general"]["ra_lim"]
-DEC_LIM = cfg["general"]["dec_lim"]
+RA_LIM = cfg["general"]["ralim"]
+DEC_LIM = cfg["general"]["declim"]
 
 
 # extract list of useful star ois from the list indicated in the star_indices fields of the config file:
@@ -58,6 +70,7 @@ for k in cfg["general"]["reduce"]:
     star_indices = star_indices+cfg["planet_ois"][k]["star_indices"]
 star_indices = list(set(star_indices)) # remove duplicates
 STAR_FILES = [DATA_DIR+cfg["star_ois"][k]["filename"] for k in star_indices]
+
 
 # read the contrast file if given, otherwise simply set it to 1
 if CONTRAST_FILE is None:
@@ -68,14 +81,20 @@ else:
 
 
 # two lists to contain the planet and star OIs
-starOis = []
-objOis = []
+starOis = [] # will contain OIs on the central star
+objOis = [] # contains the OIs on the planet itself
+swapOis = [] # first position of the swap (only in DF_SWAP mode)
+iswapOis = [] # second position of the swap (only in DF_SWAP mode)
 
 # LOAD DATA
-for filename in PLANET_FILES+STAR_FILES:
-    oi = gravity.GravityDualfieldAstrored(filename, corrMet = "sylvestre", extension = 10, opdDispCorr = "sylvestre")
+for filename in PLANET_FILES+STAR_FILES+SWAP_FILES:
+    printinf("Loading file "+filename)
+    if (PHASEREF_MODE == "DF_SWAP") and (filename in STAR_FILES):
+        oi = gravity.GravityDualfieldAstrored(filename, corrMet = "drs", extension = 10, opdDispCorr = "drs")
+    else:
+        oi = gravity.GravityDualfieldAstrored(filename, corrMet = "sylvestre", extension = 10, opdDispCorr = "sylvestre")
     # replace data by the mean over all DITs if go_fast has been requested in the config file
-    if (GO_FAST):
+    if ((GO_FAST) and not(filename in SWAP_FILES)): # mean should not be calculated on swap before phase correction
         oi.computeMean()        
         oi.visOi.recenterPhase(oi.sObjX, oi.sObjY)
         visData = np.copy(oi.visOi.visData, 'complex')
@@ -105,6 +124,8 @@ for filename in PLANET_FILES+STAR_FILES:
         oi.visOi.visErr[0, :, :] = np.copy(oi.visOi.visErrMean)
     if filename in PLANET_FILES:
         objOis.append(oi)
+    elif filename in SWAP_FILES:
+        swapOis.append(oi)
     else:
         starOis.append(oi)
 
@@ -114,26 +135,68 @@ w = np.zeros([oi.visOi.nchannel, oi.nwav])
 for c in range(oi.visOi.nchannel):
     w[c, :] = oi.wav*1e6
 
-# create visRefs fromn star_indices indicated in the config file
+# create the visibility reference. This step depends on PHASEREF_MODE (DF_STAR or DF_SWAP)
+printinf("Creating the visibility references from {:d} star observations.".format(len(starOis)))
 visRefs = [oi.visOi.visRefMean*0 for oi in objOis]
-ampRefs = [oi.visOi.visRefMean*0 for oi in objOis]
 for k in range(len(objOis)):
     planet_ind = cfg["general"]["reduce"][k]
+    ampRef = np.zeros([oi.visOi.nchannel, oi.nwav])
+    visRef = np.zeros([oi.visOi.nchannel, oi.nwav])
     for ind in cfg["planet_ois"][planet_ind]["star_indices"]:
-        # not all star files have ben loaded, so we cannot trust the order and we need to explicitly look for the correct one
+        # not all star files have been loaded, so we cannot trust the order and we need to explicitly look for the correct one
         starOis_ind = [soi.filename for soi in starOis].index(DATA_DIR+cfg["star_ois"][ind]["filename"]) 
         soi = starOis[starOis_ind]
-        visRefs[k] = visRefs[k]+soi.visOi.visRefMean
-        ampRefs[k] = ampRefs[k]+np.abs(soi.visOi.visRefMean)
-    visRefs[k] = visRefs[k]/len(cfg["planet_ois"][k]["star_indices"])
-    ampRefs[k] = ampRefs[k]/len(cfg["planet_ois"][k]["star_indices"])
+        visRef = visRef+soi.visOi.visRefMean
+        ampRef = ampRef+np.abs(soi.visOi.visRefMean)
+    visRefs[k] = ampRef/len(cfg["planet_ois"][k]["star_indices"])*np.exp(1j*np.angle(visRef/len(cfg["planet_ois"][k]["star_indices"])))
+
+# in DF_SWAP mode, thephase reference of the star cannot be used. We need to extract the phase ref from the SWAP observations
+if PHASEREF_MODE == "DF_SWAP":
+    printinf("DF_SWAP mode set.")
+    printinf("Calculating the reference phase from {:d} swap observation".format(len(swapOis)))
+    # first we need to shift all of the visibilities to the 0 OPD position, using the separation of the SWAP binary
+    # if swap ra and dec values are provided (from the swapReduce script), we can use them
+    # otherwise we can default to the fiber separation value
+    for k in range(len(swapOis)):
+        oi = swapOis[k]
+        if (not("swap_ra" in cfg["swap_ois"][k]) or not("swap_dec" in cfg["swap_ois"][k])):
+            printwar("swap_ra or swap_dec not provided for swap {:d}. Defaulting to fiber position RA={:.2f}, DEC={:.2f}".format(k, oi.sObjX, oi.sObjY))
+            swap_ra = oi.sObjX
+            swap_dec = oi.sObjY
+        else:
+            swap_ra = cfg["swap_ois"][k]["swap_ra"]
+            swap_dec = cfg["swap_ois"][k]["swap_dec"]
+        oi.visOi.recenterPhase(swap_ra, swap_dec)
+    # now that the visibilities are centered, we can take the mean of the visibilities and 
+    # extract the phase. But we need to separate the two positions of the swap
+    phaseRef1 = np.zeros([oi.visOi.nchannel, oi.nwav])
+    phaseRef2 = np.zeros([oi.visOi.nchannel, oi.nwav])
+    for k in range(len(swapOis)):
+        if cfg["swap_ois"][k]["position"] == 1:
+            phaseRef2 = phaseRef2+np.mean(swapOis[k].visOi.visRef, axis = 0)
+        else:
+            phaseRef1 = phaseRef1+np.mean(swapOis[k].visOi.visRef, axis = 0)
+    # now we can the phaseref
+    phaseRef = 0.5*(np.angle(phaseRef2)+np.angle(phaseRef1))
+    # because the phase are defined mod 2pi, phaseref can have pi offsets. We need to unwrap that
+    # For this we test the phase continuity of a phase-referenced swap obs
+    testCase = np.angle(swapOis[0].visOi.visRef.mean(axis = 0))-phaseRef
+    unwrapped = 0.5*np.unwrap(2*testCase)
+    correction = unwrapped - testCase
+    phaseRef = phaseRef - correction
+    # for convenience, we store this ref in visRef angle, getting rid of the useless values from the star
+    visRefs = [np.abs(visRef)*np.exp(1j*phaseRef) for visRef in visRefs]
+
 
 # subtract the reference phase to each OB
+printinf("Subtracting phase reference to each planet OI.")
 for k in range(len(objOis)):
     oi = objOis[k]
     oi.visOi.addPhase(-np.angle(visRefs[k]))
 
 # prepare chi2Maps
+printinf("RA grid: [{:.2f}, {:.2f}] with {:d} points".format(RA_LIM[0], RA_LIM[1], N_RA))
+printinf("DEC grid: [{:.2f}, {:.2f}] with {:d} points".format(DEC_LIM[0], DEC_LIM[1], N_DEC))
 raValues = np.linspace(RA_LIM[0], RA_LIM[1], N_RA)
 decValues = np.linspace(DEC_LIM[0], DEC_LIM[1], N_DEC)
 chi2Maps = np.zeros([len(objOis), N_RA, N_DEC])
@@ -164,7 +227,6 @@ for k in range(len(objOis)):
 opdChi2Maps = []
 bestOpdFits = []
 nditsTot = np.sum(np.array([oi.visOi.ndit for oi in objOis]))
-pBar = patiencebar.Patiencebar(valmax = nditsTot*oi.visOi.nchannel, title = "Calculating solutions...")
 fit = np.zeros([6, 230], 'complex')
 for k in range(len(objOis)):
     oi = objOis[k]
@@ -174,8 +236,8 @@ for k in range(len(objOis)):
     visRef = visRefs[k]
 #    visRef = totalVisRef
     for dit in range(oi.visOi.ndit):
+        printinf("Calculating chi2 map in OPD space for planet OI {:d} of {:d} (dit {:d}/{:d}).".format(k+1, len(objOis), dit+1, oi.visOi.ndit))
         for c in range(oi.visOi.nchannel):
-            pBar.update()
             # cov and pcov
             W = np.diag((np.real(oi.visOi.visErr[dit, c, :])**2+np.imag(oi.visOi.visErr[dit, c, :])**2)) 
             Z = np.diag((np.real(oi.visOi.visErr[dit, c, :])**2-np.imag(oi.visOi.visErr[dit, c, :])**2))
@@ -232,9 +294,8 @@ for k in range(len(objOis)):
 
 # calculate the chi2Maps from the OPD maps
 chi2Maps = []
-pBar = patiencebar.Patiencebar(valmax = len(objOis), title = "Calculating chi2Map in RA/DEC...")
 for k in range(len(objOis)):
-    pBar.update()    
+    printinf("Calculating chi2 map in RA/DEC from OPD maps for planet OI {:d} of {:d}.".format(k+1, len(objOis)))
     oi = objOis[k]
     chi2Map = np.zeros([oi.visOi.ndit, N_RA, N_DEC])
     for i in range(N_RA):
@@ -257,8 +318,8 @@ for k in range(len(objOis)):
     raBest[k] = raValues[a]
     decBest[k] = decValues[b]
 
-print("RA:", np.mean(raBest))
-print("DEC:", np.mean(decBest))
+printinf("RA: {:.2f}".format(np.mean(raBest)))
+printinf("DEC: {:.2f}".format(np.mean(decBest)))
 
 for k in range(len(PLANET_FILES)):
     ind = cfg["general"]["reduce"][k]
@@ -268,7 +329,7 @@ f = open(CONFIG_FILE, "w")
 f.write(dictToYaml(cfg))
 f.close()
 
-stop
+stop()
 
 """
 # estimate the distribution of likelihood
@@ -346,7 +407,6 @@ for k in range(len(objOis)):
 # recalculate best fits
 pBar = patiencebar.Patiencebar(valmax = len(objOis), title = "Recalculating best Fits...")
 for k in range(len(objOis)):
-    pBar.update()
     oi = objOis[k]
     bestFitStar = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex")
     bestFit = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex")    
