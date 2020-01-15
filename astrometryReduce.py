@@ -90,9 +90,9 @@ iswapOis = [] # second position of the swap (only in DF_SWAP mode)
 for filename in PLANET_FILES+STAR_FILES+SWAP_FILES:
     printinf("Loading file "+filename)
     if (PHASEREF_MODE == "DF_SWAP") and (filename in STAR_FILES):
-        oi = gravity.GravityDualfieldAstrored(filename, corrMet = "drs", extension = 10, opdDispCorr = "drs")
+        oi = gravity.GravityDualfieldAstrored(filename, corrMet = "drs", extension = 10, corrDisp = "drs")
     else:
-        oi = gravity.GravityDualfieldAstrored(filename, corrMet = "sylvestre", extension = 10, opdDispCorr = "sylvestre")
+        oi = gravity.GravityDualfieldAstrored(filename, corrMet = "sylvestre", extension = 10, corrDisp = "sylvestre")
     # replace data by the mean over all DITs if go_fast has been requested in the config file
     if ((GO_FAST) and not(filename in SWAP_FILES)): # mean should not be calculated on swap before phase correction
         oi.computeMean()        

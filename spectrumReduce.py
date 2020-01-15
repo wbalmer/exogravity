@@ -175,7 +175,7 @@ oFluxOis = []
 
 # LOAD DATA
 for filename in PLANET_FILES+STAR_FILES:
-    oi = gravity.GravityDualfieldAstrored(filename, corrMet = "sylvestre", extension = 10, opdDispCorr = "sylvestre")
+    oi = gravity.GravityDualfieldAstrored(filename, corrMet = "sylvestre", extension = 10, corrDisp = "sylvestre")
     # replace data by the mean over all DITs if go_fast has been requested in the config file
     if (GO_FAST):
         oi.computeMean()        
