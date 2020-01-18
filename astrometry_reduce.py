@@ -1,35 +1,54 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-A script to extract the astrometry from an exoplanet observation
-@author: mnowak
+"""Extract astrometry from an exoGravity observation
+
+This script is part of the exoGravity data reduction package.
+The astrometry_reduce script is used to extract the astrometry from an exoplanet observation made with GRAVITY, in dual-field mode.
+To use this script, you need to call it with a configuration file, see example below.
+
+Args:
+  config_file (str): the path the to YAML configuration file.
+  gofast (bool, optional): if set, average over DITs to accelerate calculations (Usage: --gofast, or gofast=True, or goFast=False). This will bypass
+                           the value contained in the YAML file.
+  noinv (bool, optional): if set, avoid inversion of the covariance matrix and replace it with a gaussian elimination approach. 
+                          Bypass the value in the YAML file. (Usage: --noinv, or noinv=True, or noinv=False)
+
+Example:
+  python astrometry_reduce config_file=full/path/to/yourconfig.yml
+
+Authors:
+  M. Nowak, and the exoGravity team.
+
+Version:
+  xx.xx
 """
 
 # IMPORTS
-import matplotlib.pyplot as plt
-plt.ion()
-
 import numpy as np
-import scipy.linalg.lapack as lapack
-import scipy.signal
 import scipy.sparse, scipy.sparse.linalg
+from scipy.linalg import lapack
 import astropy.io.fits as fits
-from astropy import units as u 
-import patiencebar
-from datetime import datetime
 import cleanGravity as gravity
-import glob
 from cleanGravity import complexstats as cs
-from cleanGravity import gravityPlot
-from matplotlib.backends.backend_pdf import PdfPages
-import yaml
-import sys, os
-from config import dictToYaml
 from utils import *
+import yaml
+import glob
+import sys, os
 
-# arg should be the path to tge config yal file
+# these should only be loaded
+#from matplotlib.backends.backend_pdf import PdfPages
+#import matplotlib.pyplot as plt
+#plt.ion()
+#from cleanGravity import gravityPlot
+
+# load aguments into a dictionnary
 dargs = args_to_dict(sys.argv)
 
+if "help" in dargs.keys():
+    print(__doc__)
+    stop()
+
+# arg should be the path to the config yal file    
 REQUIRED_ARGS = ["config_file"]
 for req in REQUIRED_ARGS:
     if not(req in dargs.keys()):
@@ -40,14 +59,13 @@ CONFIG_FILE = dargs["config_file"]
 if not(os.path.isfile(CONFIG_FILE)):
     raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
 
-
 # READ THE CONFIGURATION FILE
 cfg = yaml.load(open(CONFIG_FILE, "r"))
 DATA_DIR = cfg["general"]["datadir"]
 PHASEREF_MODE = cfg["general"]["phaseref_mode"]
 CONTRAST_FILE = cfg["general"]["contrast_file"]
-NO_INV = cfg["general"]["no_inv"]
-GO_FAST = cfg["general"]["go_fast"]
+NO_INV = cfg["general"]["noinv"]
+GO_FAST = cfg["general"]["gofast"]
 SAVEFIG = cfg["general"]["save_fig"]
 PLANET_FILES = [DATA_DIR+cfg["planet_ois"][k]["filename"] for k in cfg["general"]["reduce"]] # list of files corresponding to planet exposures
 if not("swap_ois" in cfg.keys()):
@@ -63,6 +81,12 @@ N_DEC = cfg["general"]["n_dec"]
 RA_LIM = cfg["general"]["ralim"]
 DEC_LIM = cfg["general"]["declim"]
 
+# OVERWRITE SOME OF THE CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
+if "gofast" in dargs.keys():
+    GO_FAST = dargs["gofast"] # bypass value from config file
+    
+if "noinv" in dargs.keys():
+    NO_INV = dargs["noinv"] # bypass value from config file    
 
 # extract list of useful star ois from the list indicated in the star_indices fields of the config file:
 star_indices = []
@@ -84,7 +108,6 @@ else:
 starOis = [] # will contain OIs on the central star
 objOis = [] # contains the OIs on the planet itself
 swapOis = [] # first position of the swap (only in DF_SWAP mode)
-iswapOis = [] # second position of the swap (only in DF_SWAP mode)
 
 # LOAD DATA
 for filename in PLANET_FILES+STAR_FILES+SWAP_FILES:
@@ -136,7 +159,7 @@ for c in range(oi.visOi.nchannel):
     w[c, :] = oi.wav*1e6
 
 # create the visibility reference. This step depends on PHASEREF_MODE (DF_STAR or DF_SWAP)
-printinf("Creating the visibility references from {:d} star observations.".format(len(starOis)))
+printinf("Creating the visibility reference from {:d} star observations.".format(len(starOis)))
 visRefs = [oi.visOi.visRefMean*0 for oi in objOis]
 for k in range(len(objOis)):
     planet_ind = cfg["general"]["reduce"][k]
@@ -148,7 +171,7 @@ for k in range(len(objOis)):
         soi = starOis[starOis_ind]
         visRef = visRef+soi.visOi.visRefMean
         ampRef = ampRef+np.abs(soi.visOi.visRefMean)
-    visRefs[k] = ampRef/len(cfg["planet_ois"][k]["star_indices"])*np.exp(1j*np.angle(visRef/len(cfg["planet_ois"][k]["star_indices"])))
+    visRefs[k] = ampRef/len(cfg["planet_ois"][planet_ind]["star_indices"])*np.exp(1j*np.angle(visRef/len(cfg["planet_ois"][planet_ind]["star_indices"])))
 
 # in DF_SWAP mode, thephase reference of the star cannot be used. We need to extract the phase ref from the SWAP observations
 if PHASEREF_MODE == "DF_SWAP":
@@ -159,20 +182,25 @@ if PHASEREF_MODE == "DF_SWAP":
     # otherwise we can default to the fiber separation value
     for k in range(len(swapOis)):
         oi = swapOis[k]
-        if (not("swap_ra" in cfg["swap_ois"][k]) or not("swap_dec" in cfg["swap_ois"][k])):
-            printwar("swap_ra or swap_dec not provided for swap {:d}. Defaulting to fiber position RA={:.2f}, DEC={:.2f}".format(k, oi.sObjX, oi.sObjY))
+        key = cfg["swap_ois"].keys()[k] # the corresponding key in the config file
+        if (not("astrometric_solution" in cfg["swap_ois"][key])):
+            printwar("astrometric_solution not provided for swap {:d}. Defaulting to fiber position RA={:.2f}, DEC={:.2f}".format(k, oi.sObjX, oi.sObjY))
             swap_ra = oi.sObjX
             swap_dec = oi.sObjY
         else:
-            swap_ra = cfg["swap_ois"][k]["swap_ra"]
-            swap_dec = cfg["swap_ois"][k]["swap_dec"]
+            if oi.swap:
+                swap_ra = -cfg["swap_ois"][key]["astrometric_solution"][0]
+                swap_dec = -cfg["swap_ois"][key]["astrometric_solution"][1]                
+            else:
+                swap_ra = cfg["swap_ois"][key]["astrometric_solution"][0]
+                swap_dec = cfg["swap_ois"][key]["astrometric_solution"][1]                
         oi.visOi.recenterPhase(swap_ra, swap_dec)
     # now that the visibilities are centered, we can take the mean of the visibilities and 
     # extract the phase. But we need to separate the two positions of the swap
     phaseRef1 = np.zeros([oi.visOi.nchannel, oi.nwav])
     phaseRef2 = np.zeros([oi.visOi.nchannel, oi.nwav])
     for k in range(len(swapOis)):
-        if cfg["swap_ois"][k]["position"] == 1:
+        if swapOis[k].swap:
             phaseRef2 = phaseRef2+np.mean(swapOis[k].visOi.visRef, axis = 0)
         else:
             phaseRef1 = phaseRef1+np.mean(swapOis[k].visOi.visRef, axis = 0)
@@ -326,10 +354,15 @@ for k in range(len(PLANET_FILES)):
     cfg["planet_ois"][ind]["astrometric_solution"] = [float(raBest[k]), float(decBest[k])] # YAML cannot convert numpy types
             
 f = open(CONFIG_FILE, "w")
-f.write(dictToYaml(cfg))
+f.write(yaml.safe_dump(cfg, default_flow_style = False))
 f.close()
 
+
 stop()
+
+
+# ACTUAL CODE ENDS HERE!!!
+
 
 """
 # estimate the distribution of likelihood
@@ -523,7 +556,7 @@ for k in range(len(objOis)):
         plt.savefig("astrometryReport/chi2Map_"+str(k)+".pdf")
         plt.close(fig)
 
-stop
+stop()
 
 f = open("astrometryReport/report.tex", "w")
 f.write("\\documentclass[a4paper, landscape]{article}\n")

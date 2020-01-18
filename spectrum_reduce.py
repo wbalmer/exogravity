@@ -1,58 +1,62 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-A class to load the data from a gravity .astrored file.
-@author: mnowak
-"""
+"""Extract contrast spectrum from an exoGravity observation
 
-import matplotlib.pyplot as plt
-plt.ion()
+This script is part of the exoGravity data reduction package.
+The spectrum_reduce script is used to extract the contrast spectrum from an exoplanet observation made with GRAVITY, in dual-field mode.
+To use this script, you need to call it with a configuration file, and an output directory, see example below.
+
+Args:
+  config_file (str): the path the to YAML configuration file.
+  outputdit (str): /path/to/outputdir in which the script will create a "contrast.txt" file and a "covariance.txt" file, to contain the result
+  gofast (bool, optional): if set, average over DITs to accelerate calculations (Usage: --gofast, or gofast=True, or goFast=False). This will bypass
+                           the value contained in the YAML file.
+
+Example:
+  python astrometry_reduce config_file=full/path/to/yourconfig.yml outputdir=/path/to/outputdir
+
+Authors:
+  M. Nowak, and the exoGravity team.
+
+Version:
+  xx.xx
+"""
 
 import numpy as np
-import scipy.signal
 import scipy.special
 import scipy.linalg
-import astropy.io.fits as fits
-from astropy import units as u 
 from datetime import datetime
 import cleanGravity as gravity
 from cleanGravity import complexstats as cs
-from cleanGravity import gravityPlot
 import glob
 import yaml
 import sys, os
+from utils import *
+
+#import matplotlib.pyplot as plt
+#plt.ion()
+#from cleanGravity import gravityPlot
 
 ### GLOBALS ###
 CONTRAST_FILENAME = "contrast.txt"
 COVARIANCE_FILENAME = "covariance.txt"
 ###
 
-def stop():
-    raise Exception("Stop")
+# load aguments into a dictionnary
+dargs = args_to_dict(sys.argv)
 
-def printinf(msg):
-    print("[INFO]: "+msg)
-def printwar(msg):
-    print("[WARNING]: "+msg)
-def printerr(msg):
-    print("[ERROR]: "+msg)
+if "help" in dargs.keys():
+    print(__doc__)
     stop()
 
-star_diameter = 0.03#
-star_diameter = star_diameter/360.0/3600.0/1000.0*2*np.pi # convert to rad
+# arg should be the path to the config yal file    
+REQUIRED_ARGS = ["config_file", "outputdir"]
+for req in REQUIRED_ARGS:
+    if not(req in dargs.keys()):
+        printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
+        stop()
 
-# arg should be the path to the config yal file
-args = sys.argv
-if len(args) < 3:
-    printerr("This script takes at least two arguments which should be the path_to_config.yal path_to_output_dir")
-    stop()
-    
-CONFIG_FILE = args[1]
-if not(os.path.isfile(args[1])):
-    printerr("Error: argument {} is not a file".format(CONFIG_FILE))
-    stop()
-
-OUTPUT_DIR = args[2]
+OUTPUT_DIR = dargs["outputdir"]
 # Test if output dir exists
 if not(os.path.isdir(OUTPUT_DIR)):
     printwar("Output directory {} not found.".format(OUTPUT_DIR))    
@@ -72,21 +76,34 @@ else: #if directory aready exits, check for files
         if not(r.lower() in ['y', 'yes']):
             printerr("Interrupted by user")               
 
+CONFIG_FILE = dargs["config_file"]
+if not(os.path.isfile(CONFIG_FILE)):
+    raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
+
 # READ THE CONFIGURATION FILE
 cfg = yaml.load(open(CONFIG_FILE, "r"))
 DATA_DIR = cfg["general"]["datadir"]
+PHASEREF_MODE = cfg["general"]["phaseref_mode"]
 CONTRAST_FILE = cfg["general"]["contrast_file"]
-NO_INV = cfg["general"]["no_inv"]
-GO_FAST = cfg["general"]["go_fast"]
+NO_INV = cfg["general"]["noinv"]
+GO_FAST = cfg["general"]["gofast"]
 SAVEFIG = cfg["general"]["save_fig"]
 PLANET_FILES = [DATA_DIR+cfg["planet_ois"][k]["filename"] for k in cfg["general"]["reduce"]] # list of files corresponding to planet exposures
+if not("swap_ois" in cfg.keys()):
+    SWAP_FILES = []
+elif cfg["swap_ois"] is None:
+    SWAP_FILES = []
+else:
+    SWAP_FILES = [DATA_DIR+cfg["swap_ois"][k]["filename"] for k in cfg["swap_ois"].keys()]
 STAR_ORDER = cfg["general"]["star_order"]
-N_OPD = cfg["general"]["n_opd"]
-N_RA = cfg["general"]["n_ra"]
-N_DEC = cfg["general"]["n_dec"]
-RA_LIM = cfg["general"]["ra_lim"]
-DEC_LIM = cfg["general"]["dec_lim"]
+STAR_DIAMETER = cfg["general"]["star_diameter"]
 
+# OVERWRITE SOME OF THE CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
+if "gofast" in dargs.keys():
+    GO_FAST = dargs["gofast"] # bypass value from config file
+    
+if "noinv" in dargs.keys():
+    NO_INV = dargs["noinv"] # bypass value from config file    
 
 # extract list of useful star ois from the list indicated in the star_indices fields of the config file:
 star_indices = []
@@ -96,10 +113,6 @@ star_indices = list(set(star_indices)) # remove duplicates
 STAR_FILES = [DATA_DIR+cfg["star_ois"][k]["filename"] for k in star_indices]
 
 # extract the astrometric solutions
-if len(args) >= 5:
-    ra = [float(args[3])]*len(cfg["general"]["reduce"])
-    dec = [float(args[4])]*len(cfg["general"]["reduce"])
-    printinf("Astrometry provided as arguments. Now using RA={} mas and DEC={} mas for all file.")
 try:
     RA_SOLUTIONS = [cfg["planet_ois"][k]["astrometric_solution"][0] for k in cfg["general"]["reduce"]]
     DEC_SOLUTIONS = [cfg["planet_ois"][k]["astrometric_solution"][1] for k in cfg["general"]["reduce"]]
@@ -108,7 +121,7 @@ except:
     printerr("Could not extract the astrometry from the config file {}".format(CONFIG_FILE))
     printinf("Please run the script 'astrometryReduce' first, or provide RA DEC values as arguments:")
     printinf("spectrumReduce.py config.yal ra_value_in_mas dec_value_in_mas")
-    sys.exit()
+    stop()
 
 
 #### deprecated part of the code #####
@@ -133,48 +146,16 @@ except:
 
 #############
 
-"""
-star_spectrum="./sylvestre/lte076-4.0-0.0a+0.0.BT-NextGen.7"
-d = open(star_spectrum, "r")
-lines=d.readlines()[10:99900]
-if len(lines[0].split()[0]) < 22:
-    val=np.double(np.array([(l.split()[0].replace('D','E'), l.split()[1].replace('D','E')) for l in lines[:-1]]))
-#else:
-#    N=len(lines[0].split('D')[0])
-#    val=np.doublefloat(np.array([(l[:N-8].replace('D','E'),l[N-8:N+4].replace('D','E')) for l in lines[:-1]]))
-#    print("fixing BT Settl data")
-log = False
-if log:
-    val[:,1]=10**(val[:,1]-8)*1e-7
-else:
-    val[:, 1] = val[:, 1]*1e-7
-val[:,0]*=1e-4
-val=val[val[:,0]>1.5]
-val=val[val[:,0]<2.8]
-#starSpectrum = exosed.Spectrum(val[:, 0], val[:, 1])
-
-
-# beta pic
-datafiles = glob.glob('./betaPictoris/2018-09-21_allwavelengths/GRAVI*astrored*.fits')
-datafiles.sort()
-astrometry = np.loadtxt("./betaPictoris/results_9773/astrometry")
-ra = astrometry[:, 0]
-dec = astrometry[:, 1]
-# star spectrum for normalisation
-hdu = fits.open("./betaPictoris/spectra/Mickael/Synthetic_spectrum_BpicA.fits")[0]
-data = hdu.data
-ind = np.where((data[:, 0] < 2.6) & (data[:, 0] > 1.6))[0]
-starSpectrum = exosed.Spectrum(data[ind, 0], data[ind, 1])
-"""
-
 starOis = []
 objOis = []
+swapOis = [] # first position of the swap (only in DF_SWAP mode)
 
 sFluxOis = []
 oFluxOis = []
 
 # LOAD DATA
 for filename in PLANET_FILES+STAR_FILES:
+    printinf("Loading file "+filename)    
     oi = gravity.GravityDualfieldAstrored(filename, corrMet = "sylvestre", extension = 10, corrDisp = "sylvestre")
     # replace data by the mean over all DITs if go_fast has been requested in the config file
     if (GO_FAST):
@@ -207,6 +188,8 @@ for filename in PLANET_FILES+STAR_FILES:
         oi.visOi.visErr[0, :, :] = np.copy(oi.visOi.visErrMean)
     if filename in PLANET_FILES:
         objOis.append(oi)
+    elif filename in SWAP_FILES:
+        swapOis.append(oi)
     else:
         starOis.append(oi)
 
@@ -227,9 +210,52 @@ for k in range(len(objOis)):
         soi = starOis[starOis_ind]
         visRefs[k] = visRefs[k]+soi.visOi.visRefMean
         ampRefs[k] = ampRefs[k]+np.abs(soi.visOi.visRefMean)
-    visRefs[k] = visRefs[k]/len(cfg["planet_ois"][k]["star_indices"])
-    ampRefs[k] = ampRefs[k]/len(cfg["planet_ois"][k]["star_indices"])
+    visRefs[k] = visRefs[k]/len(cfg["planet_ois"][planet_ind]["star_indices"])
+    ampRefs[k] = ampRefs[k]/len(cfg["planet_ois"][planet_ind]["star_indices"])
 
+# in DF_SWAP mode, thephase reference of the star cannot be used. We need to extract the phase ref from the SWAP observations
+if PHASEREF_MODE == "DF_SWAP":
+    printinf("DF_SWAP mode set.")
+    printinf("Calculating the reference phase from {:d} swap observation".format(len(swapOis)))
+    # first we need to shift all of the visibilities to the 0 OPD position, using the separation of the SWAP binary
+    # if swap ra and dec values are provided (from the swapReduce script), we can use them
+    # otherwise we can default to the fiber separation value
+    for k in range(len(swapOis)):
+        oi = swapOis[k]
+        key = cfg["swap_ois"].keys()[k] # the corresponding key in the config file
+        if (not("astrometric_solution" in cfg["swap_ois"][key])):
+            printwar("astrometric_solution not provided for swap {:d}. Defaulting to fiber position RA={:.2f}, DEC={:.2f}".format(k, oi.sObjX, oi.sObjY))
+            swap_ra = oi.sObjX
+            swap_dec = oi.sObjY
+        else:
+            if oi.swap:
+                swap_ra = -cfg["swap_ois"][key]["astrometric_solution"][0]
+                swap_dec = -cfg["swap_ois"][key]["astrometric_solution"][1]                
+            else:
+                swap_ra = cfg["swap_ois"][key]["astrometric_solution"][0]
+                swap_dec = cfg["swap_ois"][key]["astrometric_solution"][1]                
+        oi.visOi.recenterPhase(swap_ra, swap_dec)
+    # now that the visibilities are centered, we can take the mean of the visibilities and 
+    # extract the phase. But we need to separate the two positions of the swap
+    phaseRef1 = np.zeros([oi.visOi.nchannel, oi.nwav])
+    phaseRef2 = np.zeros([oi.visOi.nchannel, oi.nwav])
+    for k in range(len(swapOis)):
+        if swapOis[k].swap:
+            phaseRef2 = phaseRef2+np.mean(swapOis[k].visOi.visRef, axis = 0)
+        else:
+            phaseRef1 = phaseRef1+np.mean(swapOis[k].visOi.visRef, axis = 0)
+    # now we can the phaseref
+    phaseRef = 0.5*(np.angle(phaseRef2)+np.angle(phaseRef1))
+    # because the phase are defined mod 2pi, phaseref can have pi offsets. We need to unwrap that
+    # For this we test the phase continuity of a phase-referenced swap obs
+    testCase = np.angle(swapOis[0].visOi.visRef.mean(axis = 0))-phaseRef
+    unwrapped = 0.5*np.unwrap(2*testCase)
+    correction = unwrapped - testCase
+    phaseRef = phaseRef - correction
+    # for convenience, we store this ref in visRef angle, getting rid of the useless values from the star
+    visRefs = [np.abs(visRef)*np.exp(1j*phaseRef) for visRef in visRefs]
+
+    
 # subtract the reference phase to each OB
 for k in range(len(objOis)):
     oi = objOis[k]
@@ -244,17 +270,6 @@ for k in range(len(objOis)):
     for dit in range(oi.visOi.ndit):
         for c in range(oi.visOi.nchannel):
             oi.visOi.phi_values[dit, c, :] = np.exp(1j*phase[dit, c, :])
-
-"""
-for k in range(len(starOis)):
-    soi = starOis[k]
-    soi.visOi.phi_values = np.zeros([soi.visOi.ndit, soi.visOi.nchannel, soi.nwav], 'complex64')
-    this_u = (ra[k]*soi.visOi.uCoord + dec[k]*soi.visOi.vCoord)/1e7
-    phase = 2*np.pi*this_u*1e7/3600.0/360.0/1000.0*2*np.pi
-    for dit in range(soi.visOi.ndit):
-        for c in range(soi.visOi.nchannel):
-            soi.visOi.phi_values[dit, c, :] = np.exp(1j*phase[dit, c, :])
-"""
 
 # create projector matrices
 for k in range(len(objOis)):
@@ -273,7 +288,7 @@ for k in range(len(objOis)):
         for l in range(oi.nwav):
             x = np.zeros(oi.nwav)
             x[l] = 1
-            coeffs = np.linalg.lstsq(vectors.T, x)[0]
+            coeffs = np.linalg.lstsq(vectors.T, x, rcond=-1)[0]
             P[c, :, l] = x - np.dot(vectors.T, coeffs)
         for dit in range(oi.visOi.ndit):
             oi.visOi.p_matrices[dit, c, :, :] = np.dot(np.diag(oi.visOi.phi_values[dit, c, :]), np.dot(P[c, :, :], np.diag(oi.visOi.phi_values[dit, c, :].conj())))
@@ -320,6 +335,8 @@ for k in range(len(objOis)):
             m = int(np.sum(d))
             oi.visOi.m[dit, c] = m
 
+# TODO: is it useful?
+"""
 # if injection data available, load them
 if os.path.isfile('injection.npy'):
     inj_coeffs = np.load("injection.npy")
@@ -327,9 +344,7 @@ else:
     inj_coeffs = None    
 inj_coeffs = None
 
-
 # calculate chromatic coupling from coefficients and fiber offset
-"""
 sObjX = np.array([oi.sObjX for oi in objOis])
 sObjY = np.array([oi.sObjY for oi in objOis])
 offsets = np.sqrt((ra - sObjX)**2+(dec - sObjY)**2)
@@ -342,13 +357,17 @@ for k in range(len(objOis)):
    # a1 = np.polyval(chromatic_coefficients[1, ::-1], offset)
    # a2 = np.polyval(chromatic_coefficients[2, ::-1], offset)
     chromatic_coupling[k, :] = 1#np.polyval([a2/ref_coupling, a1/ref_coupling, a0/ref_coupling], objOis[k].wav*1e6 - 2.2)
-
+### END OF TODO
+    
 # calculate the resolved stellar visibility function
 resolved_star_models = []
 for k in range(len(objOis)):
     oi = objOis[k]
     model = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav])
-    model = 2*scipy.special.j1(np.pi*star_diameter*oi.visOi.freq)/(np.pi*star_diameter*oi.visOi.freq)
+    if STAR_DIAMETER == 0:
+        model = model+1
+    else:
+        model = 2*scipy.special.j1(np.pi*STAR_DIAMETER*oi.visOi.freq)/(np.pi*STAR_DIAMETER*oi.visOi.freq)
     resolved_star_models.append(model)
     
 # big H and big U
@@ -364,10 +383,11 @@ for k in range(len(objOis)):
     for dit in range(oi.visOi.ndit):
         for c in range(oi.visOi.nchannel):
             m = int(oi.visOi.m[dit, c])
-            if (inj_coeffs is None):
-                G = np.diag(np.abs(ampRefs[k][c, :])/resolved_star_models[k][dit, c, :]*chromatic_coupling[k, :])
-            else:
-                G = np.diag((inj_coeffs[k][dit, c, 0]*np.abs(ampRefs[k][c, :])+inj_coeffs[k][dit, c, 1]*(oi.wav - np.min(oi.wav))*1e6*np.abs(ampRefs[k][c, :]))/resolved_star_models[k][dit, c, :]*chromatic_coupling[k, :])
+            # TODO: useful?
+#            if (inj_coeffs is None):
+            G = np.diag(np.abs(ampRefs[k][c, :])/resolved_star_models[k][dit, c, :]*chromatic_coupling[k, :])
+#            else:
+#            G = np.diag((inj_coeffs[k][dit, c, 0]*np.abs(ampRefs[k][c, :])+inj_coeffs[k][dit, c, 1]*(oi.wav - np.min(oi.wav))*1e6*np.abs(ampRefs[k][c, :]))/resolved_star_models[k][dit, c, :]*chromatic_coupling[k, :])
             H[r:(r+m), :] = np.dot(oi.visOi.h_matrices[dit, c, 0:m, :], G)
             U[r:r+m] = np.dot(oi.visOi.h_matrices[dit, c, 0:m, :], oi.visOi.visRef[dit, c, :])            
             r = r+m
@@ -470,7 +490,7 @@ Cerr = np.dot(B, np.dot(0.5*np.real(covU2+pcovU2), B.T))
 # save raw contrast spectrum and diagonal error terms in a file
 printinf("Writting spectrum in file")
 f = open(OUTPUT_DIR+"/"+CONTRAST_FILENAME, 'w')
-f.write("File created automatically by script "+args[0]+" on "+datetime.utcnow().strftime("%Y-%d-%MT%H:%m:%SZ")+"\n")
+f.write("File created automatically by script "+dargs["script"]+" on "+datetime.utcnow().strftime("%Y-%d-%MT%H:%m:%SZ")+"\n")
 f.write("Wav(um) Flux(10W/m/cm2) Error(W/m2)\n")
 for k in range(len(C)):
     f.write("{:.4e} {:.4e} {:.4e}\n".format(w[0, k], C[k], np.sqrt(Cerr[k, k])))
@@ -479,7 +499,7 @@ f.close()
 # save the full covariance matrix
 printinf("Writting covariance matrix in file")
 f = open(OUTPUT_DIR+"/"+COVARIANCE_FILENAME, 'w')
-f.write("File created automatically by script "+args[0]+" on "+datetime.utcnow().strftime("%Y-%d-%MT%H:%m:%SZ")+"\n")
+f.write("File created automatically by script "+dargs["script"]+" on "+datetime.utcnow().strftime("%Y-%d-%MT%H:%m:%SZ")+"\n")
 f.write("Covariance matrix (W2/m4)\n")
 for k in range(len(C)):
     for j in range(len(C)):
@@ -487,7 +507,14 @@ for k in range(len(C)):
     f.write('\n')
 f.close()
 
-stop
+
+stop()
+
+
+# ACTUAL CODE ENDS HERE!!!
+
+
+
 
 
 # spectrum calibration for plot

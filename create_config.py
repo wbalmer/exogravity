@@ -1,8 +1,54 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-A script to create the index.csv file used to identify star and planet exposures
-@author: mnowak
+"""Create the YAML configuration script
+
+This script is part of the exoGravity data reduction package.
+The create_config script is used to create a basic YAML configuration file for an observation, which contains data
+used by the other scripts, formatted in YAML to be easily loaded as a Python dict.
+
+Args:
+  datadir (str): the directory in which the fits files are located
+  output (str): name (with full path) of the yml file in which to store the resulting configuration
+  ralim (range, optional): specify the RA range (in mas) over which to search for the astrometry: Example: ralim=[142,146]
+  declim (range, optional): same as ralim, for declination
+  nra, ndec (int, optional): number of points over the RA and DEC range (the more points, the longer the calculation)
+  nopd (int, optional): number of points to use when creating the OPD chi2 maps in the astrometry reduction. 100 is the default and is usually fine.
+  gofast (bool, optional): if set, average over DITs to accelerate calculations (Usage: --gofast, or gofast=True)
+  noinv (bool, optional): if set, avoid inversion of the covariance matrix and replace it with a gaussian elimination approach. 
+                          This can sometimes speed up calculations, but it depends. As a general rule, the more DITs you have, 
+                          the less likely it is that noinv will be beneficial. It also depends on resolution, with higher resolution
+                          making noinv more likely to be useful.
+  contrast_file (str, optional): path to the contrast file (planet/star) to use as a model for the planet visibility amplitude.
+                                 Default is None, which is a constant contrast (as a function of wavelength).
+  star_order (int, optional): the order of the polynomial used to fit the stellar component of the visibility (default is 3)
+  star_diameter (float, optional): the diameter of the central star (in mas, to scale the visibility amplitude). Default is 0. 
+
+
+Example:
+  Minimal
+    python astrometryReduce datadir=/path/to/your/data/directory output=/path/to/result.yml
+  To set the RA/DEC range to explore to find the astrometry, and the resolution:
+    python astrometryReduce datadir=/data/directory output=result.yml ralim=[142,146] declim=[73,78] nra=200 ndec=200
+  Speed up calculation to test an astrometry range
+  To set the RA/DEC range to explore to find the astrometry, and the resolution:
+    python astrometryReduce datadir=/data/directory output=result.yml ralim=[140,150] declim=[70,80] nra=50 ndec=50 --gofast
+
+Configuration:
+  The configuration file must contain all necessary information as to where the data are located on your disk, which mode
+  of observation was used, as well as some parameters for the data reduction. It is strongly advised to use the
+  create_config.py script (also provided with the exoGravity data reduction package) to create your configuration file, 
+  which you can then tweek to fit your need. Please refer to the documentation of create_config.py.
+
+Todo:
+  *identify which values/plots should be extracted along the reduction and saved from checking data quality
+  *take into account proper complex errors
+  *Exception management?
+
+Authors:
+  M. Nowak, and the exoGravity team.
+
+Version:
+  xx.xx
 """
 
 import astropy.io.fits as fits
@@ -12,12 +58,17 @@ import cleanGravity as gravity
 import glob
 import sys
 import os
-from config import dictToYaml
+#from config import dictToYaml
+import yaml
 from utils import * 
 
 REQUIRED_ARGS = ["datadir", "output"]
 
 dargs = args_to_dict(sys.argv)
+
+if "help" in dargs.keys():
+    print(__doc__)
+    stop()
 
 for req in REQUIRED_ARGS:
     if not(req in dargs.keys()):
@@ -29,7 +80,7 @@ if not(os.path.isdir(dargs["datadir"])):
     stop()
 
 if os.path.isfile(dargs["output"]):
-    printinf("File {} already exists. Overwrite it? (y/n)".format(dargs["output"]))
+    printinf("File {} already exists.".format(dargs["output"]))
     r = printinp("Overwrite it? (y/n)")
     if not(r.lower() in ["y", "yes"]):
         printerr("User abort")
@@ -51,11 +102,31 @@ if not("nopd" in dargs.keys()):
     dargs["nopd"] = 100
 if not("star_order" in dargs.keys()):
     printwar("star_order not provided in args. Defaulting to star_order=3")
-    dargs["star_order"] = 3
+    dargs["star_order"] = 3    
+if not("gofast" in dargs.keys()):
+    printwar("Value for gofast option not set. Defaulting to gofast=False")
+    dargs['gofast'] = False    
+if not("noinv" in dargs.keys()):
+    printwar("Value for noinv option not set. Defaulting to noinv=False")
+    dargs['noinv'] = False
+if not("contrast_file" in dargs.keys()):
+    printwar("Contrast file not given. Constant contrast will be used")
+    dargs['contrast_file'] = None
 
-
+if not("star_diameter" in dargs.keys()):
+    printwar("star_diameter not provided in args. Defaulting to star_diameter=0 (point source)")
+    dargs["star_diameter"] = 0    
+    
 # load the datafiles
 datafiles = glob.glob(dargs["datadir"]+'/GRAVI*astrored*.fits')
+# remove duplicates with _s extension
+to_keep = []
+for k in range(len(datafiles)):
+    filename = datafiles[k]
+    filename = filename.replace(".fits", "_s.fits")
+    if not(filename in datafiles):
+        to_keep.append(k)
+datafiles = [datafiles[k] for k in to_keep]
 datafiles.sort()
 printinf("{:d} files found".format(len(datafiles)))
 
@@ -79,7 +150,7 @@ for k in range(len(datafiles)):
         printinf(msg+"Assuming file to be part of a swap.")
         swapOis.append(oi)
 
-if dargs["ralim"] is None:
+if ((dargs["ralim"] is None) or (dargs["ralim"] is None)):
     ra = np.mean(np.array([oi.sObjX for oi in objOis]))
     ralim = [float(ra)-5, float(ra)+5] # get rid of numpy type so that yaml conversion works
     dec = np.mean(np.array([oi.sObjY for oi in objOis]))
@@ -98,20 +169,20 @@ else:
     printinf("No SWAP file detected. Setting phaseref_mode to STAR.")
     phaseref_mode = "DF_STAR"
 
-
 general = {"datadir": dargs["datadir"],
            "phaseref_mode": phaseref_mode,
-           "go_fast": True,
-           "no_inv": True,
-           "contrast_file": None,
+           "gofast": dargs['gofast'],
+           "noinv": dargs['noinv'],
+           "contrast_file": dargs['contrast_file'],
            "save_fig": True,
-           "n_opd": dargs["nopd"],
-           "n_ra": dargs["nra"],
-           "n_dec": dargs["ndec"],
+           "n_opd": int(dargs["nopd"]),
+           "n_ra": int(dargs["nra"]),
+           "n_dec": int(dargs["ndec"]),
            "ralim": ralim,
            "declim": declim,
-           "star_order": dargs["star_order"],
-           "reduce": list(range(len(objOis)))}
+           "star_order": int(dargs["star_order"]),
+           "star_diameter": float(dargs["star_diameter"]),           
+           "reduce": ["p"+str(j) for j in range(len(objOis))]}
 
 planet_files = {}
 for k in range(len(objOis)):
@@ -122,9 +193,9 @@ for k in range(len(objOis)):
          "mjd": oi.mjd,
          "sObjX": oi.sObjX,
          "sObjY": oi.sObjY,
-         "star_indices": [starOis.index(oiBefore), starOis.index(oiAfter)]
+         "star_indices": ["s"+str(j) for j in [starOis.index(oiBefore), starOis.index(oiAfter)]]
      }
-    planet_files[str(k)] = d
+    planet_files["p"+str(k)] = d
 
 star_files = {}
 for k in range(len(starOis)):
@@ -134,7 +205,7 @@ for k in range(len(starOis)):
          "sObjX": oi.sObjX,
          "sObjY": oi.sObjY
      }
-    star_files[str(k)] = d
+    star_files["s"+str(k)] = d
 
 swap_files = {}
 for k in range(len(swapOis)):
@@ -151,11 +222,8 @@ for k in range(len(swapOis)):
          "mjd": oi.mjd,
          "sObjX": oi.sObjX,
          "sObjY": oi.sObjY,
-         "position": pos,
-         "swap_ra": 824.76*pos,
-         "swap_dec": 748.84*pos
-     }
-    swap_files[str(k)] = d
+     }         
+    swap_files["w"+str(k)] = d
 
 
 cfg = {"general": general,
@@ -165,8 +233,8 @@ cfg = {"general": general,
    }
 
 f = open(dargs["output"], "w")
-f.write(dictToYaml(cfg))
+#f.write(dictToYaml(cfg))
+f.write(yaml.safe_dump(cfg, default_flow_style = False))
 f.close()
 
 printinf("Saved config for {:d} files to {}".format(len(datafiles), dargs["output"]))
-
