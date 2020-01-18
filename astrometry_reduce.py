@@ -60,7 +60,7 @@ if not(os.path.isfile(CONFIG_FILE)):
     raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
 
 # READ THE CONFIGURATION FILE
-cfg = yaml.load(open(CONFIG_FILE, "r"))
+cfg = yaml.load(open(CONFIG_FILE, "r"), Loader = yaml.FullLoader)
 DATA_DIR = cfg["general"]["datadir"]
 PHASEREF_MODE = cfg["general"]["phaseref_mode"]
 CONTRAST_FILE = cfg["general"]["contrast_file"]
