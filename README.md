@@ -51,7 +51,7 @@ automatically loaded), and a few standard packages. If you want to run
 the examples, I suggest you import the following, and also define the
 `DATADIR` variable to point to the HD 25535 directory.
 
-``` {.python linerange="1-6"}
+``` code
 # useful imports
 import numpy as np
 import matplotlib.pyplot as plt
