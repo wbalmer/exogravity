@@ -31,8 +31,13 @@ import astropy.io.fits as fits
 import cleanGravity as gravity
 from cleanGravity import complexstats as cs
 from utils import *
-import yaml
 import glob
+try:
+    import ruamel.yaml
+    RUAMEL = True
+except: # if ruamel not available, switch back to pyyaml, which does not handle comments properly
+    import yaml
+    RUAMEL = False
 import sys, os
 
 # these should only be loaded
@@ -60,7 +65,10 @@ if not(os.path.isfile(CONFIG_FILE)):
     raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
 
 # READ THE CONFIGURATION FILE
-cfg = yaml.load(open(CONFIG_FILE, "r"), Loader = yaml.FullLoader)
+if RUAMEL:
+    cfg = ruamel.yaml.load(open(CONFIG_FILE, "r"), Loader=ruamel.yaml.RoundTripLoader)
+else:
+    cfg = yaml.safe_load(open(CONFIG_FILE, "r"))
 DATA_DIR = cfg["general"]["datadir"]
 PHASEREF_MODE = cfg["general"]["phaseref_mode"]
 CONTRAST_FILE = cfg["general"]["contrast_file"]
@@ -354,7 +362,10 @@ for k in range(len(PLANET_FILES)):
     cfg["planet_ois"][ind]["astrometric_solution"] = [float(raBest[k]), float(decBest[k])] # YAML cannot convert numpy types
             
 f = open(CONFIG_FILE, "w")
-f.write(yaml.safe_dump(cfg, default_flow_style = False))
+if RUAMEL:
+    f.write(ruamel.yaml.dump(cfg, Dumper=ruamel.yaml.RoundTripDumper))
+else:
+    f.write(yaml.safe_dump(cfg, default_flow_style = False)) 
 f.close()
 
 

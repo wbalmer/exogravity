@@ -29,9 +29,15 @@ from datetime import datetime
 import cleanGravity as gravity
 from cleanGravity import complexstats as cs
 import glob
-import yaml
-import sys, os
 from utils import *
+try:
+    import ruamel.yaml
+    RUAMEL = True
+except: # if ruamel not available, switch back to pyyaml, which does not handle comments properly
+    import yaml
+    RUAMEL = False
+import sys, os
+
 
 #import matplotlib.pyplot as plt
 #plt.ion()
@@ -81,7 +87,10 @@ if not(os.path.isfile(CONFIG_FILE)):
     raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
 
 # READ THE CONFIGURATION FILE
-cfg = yaml.load(open(CONFIG_FILE, "r"), Loader = yaml.FullLoader)
+if RUAMEL:
+    cfg = ruamel.yaml.load(open(CONFIG_FILE, "r"), Loader=ruamel.yaml.RoundTripLoader)
+else:
+    cfg = yaml.safe_load(open(CONFIG_FILE, "r"))
 DATA_DIR = cfg["general"]["datadir"]
 PHASEREF_MODE = cfg["general"]["phaseref_mode"]
 CONTRAST_FILE = cfg["general"]["contrast_file"]

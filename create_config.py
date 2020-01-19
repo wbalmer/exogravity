@@ -58,8 +58,12 @@ import cleanGravity as gravity
 import glob
 import sys
 import os
-#from config import dictToYaml
-import yaml
+try:
+    import ruamel.yaml
+    RUAMEL = True
+except: # if ruamel not available, switch back to pyyaml, which does not handle comments properly
+    import yaml
+    RUAMEL = False
 from utils import * 
 
 REQUIRED_ARGS = ["datadir", "output"]
@@ -233,8 +237,10 @@ cfg = {"general": general,
    }
 
 f = open(dargs["output"], "w")
-#f.write(dictToYaml(cfg))
-f.write(yaml.safe_dump(cfg, default_flow_style = False))
+if RUAMEL:
+    f.write(ruamel.yaml.dump(cfg, default_flow_style = False))
+else:
+    f.write(yaml.safe_dump(cfg, default_flow_style = False)) 
 f.close()
 
 printinf("Saved config for {:d} files to {}".format(len(datafiles), dargs["output"]))

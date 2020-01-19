@@ -30,7 +30,7 @@ from cleanGravity import gravityPlot
 import glob
 import sys, os
 from utils import *
-import yaml
+import ruamel.yaml
 
 # again, need to clean the imports
 #import matplotlib.pyplot as plt
@@ -55,7 +55,7 @@ for req in REQUIRED_ARGS:
 CONFIG_FILE = dargs["config_file"]
 if not(os.path.isfile(CONFIG_FILE)):
     raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
-cfg = yaml.load(open(CONFIG_FILE, "r"))
+cfg = ruamel.yaml.load(open(CONFIG_FILE, "r"), Loader=ruamel.yaml.RoundTripLoader)
 
 # GET FILES FOR THE SWAP 
 if not("swap_ois" in cfg.keys()):
@@ -237,7 +237,7 @@ for key in cfg['swap_ois'].keys():
     cfg["swap_ois"][key]["astrometric_solution"] = [float(raBest.mean()), float(decBest.mean())] # YAML cannot convert numpy types
             
 f = open(CONFIG_FILE, "w")
-f.write(yaml.safe_dump(cfg, default_flow_style = False))
+f.write(ruamel.yaml.dump(cfg, Dumper=ruamel.yaml.RoundTripDumper))
 f.close()
 
 stop()
