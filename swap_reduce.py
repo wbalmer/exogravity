@@ -27,6 +27,7 @@ Version:
 import numpy as np
 from cleanGravity import complexstats as cs
 from cleanGravity import gravityPlot
+import cleanGravity as gravity
 import glob
 import sys, os
 from utils import *
