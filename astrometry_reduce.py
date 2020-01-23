@@ -693,14 +693,20 @@ oi = objOis[0]
 plt.figure()
 for c in range(oi.visOi.nchannel):
     freq = oi.visOi.freq[:, c, :].mean(axis = 0)/1e6
-    plt.semilogy(freq, np.abs(oi.visOi.visRef[:, c, :]).mean(axis = 0), 'C'+str(c))
-    plt.semilogy(freq, np.abs(oi.visOi.visRef[:, c, :].mean(axis = 0) - oi.visOi.bestFitStar[:, c, :].mean(axis = 0)), '--C'+str(c))
-    plt.semilogy(freq, np.abs(oi.visOi.visRef[:, c, :]).mean(axis = 0)**0.5/len(objOis)**0.5, 'k--')
+    plt.semilogy(freq, np.abs(oi.dit/soi.dit*soi.visOi.visRef[:, c, :]).mean(axis = 0), 'C'+str(c))    
+    plt.semilogy(freq, np.abs(oi.dit*oi.visOi.visRef[:, c, :]).mean(axis = 0), '-.C'+str(c))
+    plt.semilogy(freq, np.abs(oi.dit*oi.visOi.visRef[:, c, :].mean(axis = 0) - oi.dit*oi.visOi.bestFitStar[:, c, :].mean(axis = 0)), '--C'+str(c))
+    plt.semilogy(freq, np.abs(oi.dit*oi.visOi.visRef[:, c, :]).mean(axis = 0)**0.5/len(objOis)**0.5, 'k--')
 
-plt.legend(["On-planet stellar residual", "On-planet planet flux", "Shot noise on stellar residual"])
+plt.legend(["On-star", "On-planet stellar residual", "On-planet planet flux", "Shot noise on stellar residual"])
     
 plt.xlabel("Frequency (Mrad/s)")
-plt.ylabel("Amplitude (ADU)")
+plt.ylabel("Flux (ADU)")
+
+plt.grid(which = "both")
 ###
 
     
+
+for k in cfg['planet_ois']:
+    print(cfg['planet_ois'][k]['filename'])
