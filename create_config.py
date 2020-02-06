@@ -22,16 +22,17 @@ Args:
                                  Default is None, which is a constant contrast (as a function of wavelength).
   star_order (int, optional): the order of the polynomial used to fit the stellar component of the visibility (default is 3)
   star_diameter (float, optional): the diameter of the central star (in mas, to scale the visibility amplitude). Default is 0. 
+  corr_met (str, optional): can be "sylvestre" or "drs", or possibly "none" depending on which formula to use for the metrology correction
+  corr_disp (str, optional): can be "sylvestre" or "drs", or possibly "none" depending on which formula to use for the dispersion correction
 
 
 Example:
   Minimal
-    python astrometryReduce datadir=/path/to/your/data/directory output=/path/to/result.yml
+    python create_config datadir=/path/to/your/data/directory output=/path/to/result.yml
   To set the RA/DEC range to explore to find the astrometry, and the resolution:
-    python astrometryReduce datadir=/data/directory output=result.yml ralim=[142,146] declim=[73,78] nra=200 ndec=200
+    python create_config datadir=/data/directory output=result.yml ralim=[142,146] declim=[73,78] nra=200 ndec=200
   Speed up calculation to test an astrometry range
-  To set the RA/DEC range to explore to find the astrometry, and the resolution:
-    python astrometryReduce datadir=/data/directory output=result.yml ralim=[140,150] declim=[70,80] nra=50 ndec=50 --gofast
+    python create_config datadir=/data/directory output=result.yml ralim=[140,150] declim=[70,80] nra=50 ndec=50 --gofast
 
 Configuration:
   The configuration file must contain all necessary information as to where the data are located on your disk, which mode
@@ -119,7 +120,15 @@ if not("contrast_file" in dargs.keys()):
 
 if not("star_diameter" in dargs.keys()):
     printwar("star_diameter not provided in args. Defaulting to star_diameter=0 (point source)")
-    dargs["star_diameter"] = 0    
+    dargs["star_diameter"] = 0
+
+if not("corr_met" in dargs.keys()):
+    printwar("corr_met not specified. Using 'sylvestre'")
+    dargs["corr_met"] = "sylvestre"
+if not("corr_disp" in dargs.keys()):
+    printwar("corr_disp not specified. Using 'sylvestre'")
+    dargs["corr_disp"] = "sylvestre"        
+
     
 # load the datafiles
 datafiles = glob.glob(dargs["datadir"]+'/GRAVI*astrored*.fits')
@@ -175,10 +184,12 @@ else:
 
 general = {"datadir": dargs["datadir"],
            "phaseref_mode": phaseref_mode,
+           "corr_met": dargs['corr_met'],
+           "corr_disp": dargs['corr_disp'],                      
            "gofast": dargs['gofast'],
            "noinv": dargs['noinv'],
            "contrast_file": dargs['contrast_file'],
-           "save_fig": True,
+           "fig_dir": None
            "n_opd": int(dargs["nopd"]),
            "n_ra": int(dargs["nra"]),
            "n_dec": int(dargs["ndec"]),

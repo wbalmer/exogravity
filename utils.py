@@ -5,21 +5,24 @@ Contains common functions used by other scripts
 @author: mnowak
 """
 from builtins import input
+import time
+
+t0 = time.time()
 
 def stop():
     raise Exception("Stop")
 
 def printinf(msg):
     """Print an information message preceded by [INFO]:"""
-    print("[INFO]: "+msg)
+    print("[INFO]: t={:.2f}s ".format(time.time()-t0) + msg)
     
 def printwar(msg):
     """Print a warning message preceded by [WARNING]:"""    
-    print("[WARNING]: "+msg)
+    print("[WARNING]: t={:.2f}s ".format(time.time()-t0) + msg)
     
 def printerr(msg):
     """Print an error message preceded by [ERROR]: and stop the execution"""        
-    print("[ERROR]: "+msg)
+    print("[ERROR]: t={:.2f}s ".format(time.time()-t0) + msg)
     stop()
 
 def printinp(msg):
