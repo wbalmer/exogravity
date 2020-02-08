@@ -70,7 +70,7 @@ PHASEREF_MODE = cfg["general"]["phaseref_mode"]
 CONTRAST_FILE = cfg["general"]["contrast_file"]
 NO_INV = cfg["general"]["noinv"]
 GO_FAST = cfg["general"]["gofast"]
-FIGDIR = cfg["general"]["fig_dir"]
+FIGDIR = cfg["general"]["figdir"]
 PLANET_FILES = [DATA_DIR+cfg["planet_ois"][k]["filename"] for k in cfg["general"]["reduce"]] # list of files corresponding to planet exposures
 if not("swap_ois" in cfg.keys()):
     SWAP_FILES = []
@@ -87,10 +87,20 @@ DEC_LIM = cfg["general"]["declim"]
 
 # OVERWRITE SOME OF THE CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
 if "gofast" in dargs.keys():
-    GO_FAST = dargs["gofast"] # bypass value from config file
-    
+    GO_FAST = dargs["gofast"] # bypass value from config file    
 if "noinv" in dargs.keys():
-    NO_INV = dargs["noinv"] # bypass value from config file    
+    NO_INV = dargs["noinv"] # bypass value from config file
+if "figdir" in dargs.keys():
+    FIGDIR = dargs["figdir"] # bypass value from config file        
+
+# LOAD GRAVITY PLOT is savefig requested
+if not(FIGDIR is None):
+    from cleanGravity import gravityPlot as gPlot
+    import matplotlib.pyplot as plt
+    import matplotlib
+    if not(os.path.isdir(FIGDIR)):
+        os.makedirs(FIGDIR)
+        printinf("Directory {} was not found and has been created".format(FIGDIR))
 
 # extract list of useful star ois from the list indicated in the star_indices fields of the config file:
 star_indices = []
@@ -104,23 +114,15 @@ STAR_FILES = [DATA_DIR+cfg["star_ois"][k]["filename"] for k in star_indices]
 if CONTRAST_FILE is None:
     contrast = 1
 elif CONTRAST_FILE.split('.')[-1].lower() in ["fit", "fits"]:
-    hdu = fits.open(CONTRAST_FILE)
-    contrast_data = hdu[0].data
-    contrast_wav = hdu[1].data    
+    contrast_wav, dummy, dummy2, contrast_data, dummy3 = loadFitsSpectrum(CONTRAST_FILE)
+else:
+    printerr("The given contrast file ({}) should have a fits extension".format(fits))
 
 # two lists to contain the planet and star OIs
 starOis = [] # will contain OIs on the central star
 objOis = [] # contains the OIs on the planet itself
 swapOis = [] # first position of the swap (only in DF_SWAP mode)
 
-# LOAD GRAVITY PLOT is savefig requested
-if not(FIGDIR is None):
-    from cleanGravity import gravityPlot as gPlot
-    import matplotlib.pyplot as plt
-    import matplotlib
-    if not(os.path.isdir(FIGDIR)):
-        os.makedirs(FIGDIR)
-        printinf("Directory {} was not found and has been created".format(FIGDIR))
 
 
 # LOAD DATA
@@ -174,9 +176,9 @@ for oi in objOis+starOis: # mean should not be calculated on swap before phase c
         oi.visOi.ndit = 1
         oi.ndit = 1        
         oi.visOi.recenterPhase(-oi.sObjX, -oi.sObjY)        
-    oi.computeMean()
-    oi.visOi.visErr = np.zeros([1, oi.visOi.nchannel, oi.nwav], 'complex')    
-    oi.visOi.visErr[0, :, :] = np.copy(oi.visOi.visErrMean)
+        oi.computeMean()
+        oi.visOi.visErr = np.zeros([1, oi.visOi.nchannel, oi.nwav], 'complex')    
+        oi.visOi.visErr[0, :, :] = np.copy(oi.visOi.visErrMean)
 
     
 # calculate the very useful w for plotting

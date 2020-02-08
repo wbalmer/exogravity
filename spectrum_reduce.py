@@ -30,6 +30,7 @@ import cleanGravity as gravity
 from cleanGravity import complexstats as cs
 import glob
 from utils import *
+import itertools
 try:
     import ruamel.yaml
     RUAMEL = True
@@ -44,8 +45,7 @@ import sys, os
 #from cleanGravity import gravityPlot
 
 ### GLOBALS ###
-CONTRAST_FILENAME = "contrast.txt"
-COVARIANCE_FILENAME = "covariance.txt"
+SPECTRUM_FILENAME = "spectrum.fits"
 ###
 
 # load aguments into a dictionnary
@@ -65,22 +65,23 @@ for req in REQUIRED_ARGS:
 OUTPUT_DIR = dargs["outputdir"]
 # Test if output dir exists
 if not(os.path.isdir(OUTPUT_DIR)):
-    printwar("Output directory {} not found.".format(OUTPUT_DIR))    
-    r = input("[INPUT]: Create it? (y/n).")
-    if not(r.lower() in ['y', 'yes']):
-        printerr("Interrupted by user")
-    os.mkdir(OUTPUT_DIR)    
-else: #if directory aready exits, check for files
-    if os.path.isfile(OUTPUT_DIR+CONTRAST_FILENAME):
-        printwar("A file {} has been found in specified output directory {}, and will be overwritten by this script.".format(CONTRAST_FILENAME, OUTPUT_DIR))
-        r = input("[INPUT]: Do you want to continue? (y/n)")
-        if not(r.lower() in ['y', 'yes']):
-            printerr("Interrupted by user")
-    if os.path.isfile(OUTPUT_DIR+COVARIANCE_FILENAME):
-        printwar("A file {} has been found in specified output directory {}, and will be overwritten by this script.".format(COVARIANCE_FILENAME, OUTPUT_DIR))
-        r = input("[INPUT]: Do you want to continue? (y/n)")
-        if not(r.lower() in ['y', 'yes']):
-            printerr("Interrupted by user")               
+    printwar("Creating directory {}.".format(OUTPUT_DIR))    
+#    r = input("[INPUT]: Create it? (y/n).")
+#    if not(r.lower() in ['y', 'yes']):
+#        printerr("Interrupted by user")
+    os.mkdir(OUTPUT_DIR)
+    
+#else: #if directory aready exits, check for files
+#    if os.path.isfile(OUTPUT_DIR+SPECTRUM_FILENAME):
+#        printwar("A file {} has been found in specified output directory {}, and will be overwritten by this script.".format(SPECTRUM_FILENAME, OUTPUT_DIR))
+#        r = input("[INPUT]: Do you want to continue? (y/n)")
+#        if not(r.lower() in ['y', 'yes']):
+#            printerr("Interrupted by user")
+#    if os.path.isfile(OUTPUT_DIR+COVARIANCE_FILENAME):
+#        printwar("A file {} has been found in specified output directory {}, and will be overwritten by this script.".format(COVARIANCE_FILENAME, OUTPUT_DIR))
+#        r = input("[INPUT]: Do you want to continue? (y/n)")
+#        if not(r.lower() in ['y', 'yes']):
+#            printerr("Interrupted by user")               
 
 CONFIG_FILE = dargs["config_file"]
 if not(os.path.isfile(CONFIG_FILE)):
@@ -96,7 +97,7 @@ PHASEREF_MODE = cfg["general"]["phaseref_mode"]
 CONTRAST_FILE = cfg["general"]["contrast_file"]
 NO_INV = cfg["general"]["noinv"]
 GO_FAST = cfg["general"]["gofast"]
-SAVEFIG = cfg["general"]["save_fig"]
+FIGDIR = cfg["general"]["figdir"]
 PLANET_FILES = [DATA_DIR+cfg["planet_ois"][k]["filename"] for k in cfg["general"]["reduce"]] # list of files corresponding to planet exposures
 if not("swap_ois" in cfg.keys()):
     SWAP_FILES = []
@@ -110,9 +111,19 @@ STAR_DIAMETER = cfg["general"]["star_diameter"]
 # OVERWRITE SOME OF THE CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
 if "gofast" in dargs.keys():
     GO_FAST = dargs["gofast"] # bypass value from config file
-    
 if "noinv" in dargs.keys():
     NO_INV = dargs["noinv"] # bypass value from config file    
+if "figdir" in dargs.keys():
+    FIGDIR = dargs["figdir"] # bypass value from config file    
+
+# LOAD GRAVITY PLOT is savefig requested
+if not(FIGDIR is None):
+    from cleanGravity import gravityPlot as gPlot
+    import matplotlib.pyplot as plt
+    import matplotlib
+    if not(os.path.isdir(FIGDIR)):
+        os.makedirs(FIGDIR)
+        printinf("Directory {} was not found and has been created".format(FIGDIR))
 
 # extract list of useful star ois from the list indicated in the star_indices fields of the config file:
 star_indices = []
@@ -162,46 +173,68 @@ swapOis = [] # first position of the swap (only in DF_SWAP mode)
 sFluxOis = []
 oFluxOis = []
 
+
 # LOAD DATA
-for filename in PLANET_FILES+STAR_FILES:
-    printinf("Loading file "+filename)    
-    oi = gravity.GravityDualfieldAstrored(filename, corrMet = "sylvestre", extension = 10, corrDisp = "sylvestre")
-    # replace data by the mean over all DITs if go_fast has been requested in the config file
+t = time.time()
+for filename in PLANET_FILES+STAR_FILES+SWAP_FILES:
+    printinf("Loading file "+filename)
+    if (PHASEREF_MODE == "DF_SWAP") and (filename in STAR_FILES):
+        oi = gravity.GravityDualfieldAstrored(filename, corrMet = "drs", extension = 10, corrDisp = "drs")
+    else:
+        oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = 10, corrDisp = cfg["general"]["corr_disp"])
+    if filename in PLANET_FILES:
+        objOis.append(oi)
+        printinf("File is on planet. FT coherent flux: {:.2e}".format(np.mean(np.abs(oi.visOi.visDataFt))))        
+    elif filename in SWAP_FILES:
+        swapOis.append(oi)
+        printinf("File is from a SWAP")
+    else:
+        starOis.append(oi)
+        printinf("File is on star")
+        
+# flag points based on FT value
+ftThreshold = np.array([np.abs(oi.visOi.visDataFt).mean() for oi in objOis]).mean()/10.0
+printinf("Flag data below FT threshold of {:.2e}".format(ftThreshold))
+for oi in objOis:
+    indx = np.where(np.abs(oi.visOi.visDataFt) < ftThreshold)
+    oi.visOi.flagPoints(indx)
+
+# normalize by FT flux to get rid of atmospheric transmission variations
+printinf("Normalizing visibilities to FT coherent flux.")
+for oi in objOis+starOis:
+    oi.visOi.scaleVisibilities(1.0/np.abs(oi.visOi.visDataFt).mean())
+
+
+# replace data by the mean over all DITs if go_fast has been requested in the config file
+printinf("gofast flag is set. Averaging over DITs")
+for oi in objOis+starOis: # mean should not be calculated on swap before phase correction
     if (GO_FAST):
-        oi.computeMean()        
+        oi.computeMean()
         oi.visOi.recenterPhase(oi.sObjX, oi.sObjY)
-        visData = np.copy(oi.visOi.visData, 'complex')
-        visRef = np.copy(oi.visOi.visRef, 'complex')        
-        oi.visOi.visData = np.zeros([1, oi.visOi.nchannel, oi.nwav], 'complex')
-        oi.visOi.visRef = np.zeros([1, oi.visOi.nchannel, oi.nwav], 'complex')    
-        oi.visOi.visData[0, :, :] = visData.mean(axis = 0)
-        oi.visOi.visRef[0, :, :] = visRef.mean(axis = 0)
-        uCoord = np.copy(oi.visOi.uCoord)
-        oi.visOi.uCoord = np.zeros([1, oi.visOi.nchannel, oi.nwav])
-        oi.visOi.uCoord[0, :, :] = np.mean(uCoord, axis = 0)
-        vCoord = np.copy(oi.visOi.vCoord)
-        oi.visOi.vCoord = np.zeros([1, oi.visOi.nchannel, oi.nwav])
-        oi.visOi.vCoord[0, :, :] = np.mean(vCoord, axis = 0)
         u = np.copy(oi.visOi.u)
         oi.visOi.u = np.zeros([1, oi.visOi.nchannel])
         oi.visOi.u[0, :] = np.mean(u, axis = 0)
         v = np.copy(oi.visOi.v)
-        oi.visOi.v = np.zeros([1, oi.visOi.nchannel])
-        oi.visOi.v[0, :] = np.mean(v, axis = 0)        
+        oi.visOi.v = np.zeros([1, oi.visOi.nchannel])        
+        oi.visOi.v[0, :] = np.mean(v, axis = 0)                
+        oi.visOi.visData = np.tile(np.sum(oi.visOi.visData*~oi.visOi.flag, axis = 0)/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
+        oi.visOi.visRef = np.tile(np.sum(oi.visOi.visRef*~oi.visOi.flag, axis = 0)/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
+        oi.visOi.uCoord = np.tile(np.sum(oi.visOi.uCoord*~oi.visOi.flag, axis = 0)/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
+        oi.visOi.vCoord = np.tile(np.sum(oi.visOi.vCoord*~oi.visOi.flag, axis = 0)/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
+        oi.visOi.visCov = np.tile(np.sum(oi.visOi.visCov*~oi.visOi.flagCov, axis = 0)/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
+        oi.visOi.visPcov = np.tile(np.sum(oi.visOi.visPcov*~oi.visOi.flagCov, axis = 0)/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
+        oi.visOi.visRefCov = np.tile(np.sum(oi.visOi.visRefCov*~oi.visOi.flagCov, axis = 0)/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
+        oi.visOi.visRefPcov = np.tile(np.sum(oi.visOi.visRefPcov*~oi.visOi.flagCov, axis = 0)/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
+        oi.visOi.flag = np.tile(np.any(oi.visOi.flag, axis = 0), [1, 1, 1])
+        oi.visOi.flagCov = np.tile(np.any(oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])        
         oi.visOi.ndit = 1
-        oi.ndit = 1
+        oi.ndit = 1        
         oi.visOi.recenterPhase(-oi.sObjX, -oi.sObjY)        
-    oi.computeMean()
-    if (GO_FAST):
+        oi.computeMean()
         oi.visOi.visErr = np.zeros([1, oi.visOi.nchannel, oi.nwav], 'complex')    
         oi.visOi.visErr[0, :, :] = np.copy(oi.visOi.visErrMean)
-    if filename in PLANET_FILES:
-        objOis.append(oi)
-    elif filename in SWAP_FILES:
-        swapOis.append(oi)
-    else:
-        starOis.append(oi)
 
+    
 # calculate the very useful w for plotting
 oi = objOis[0]
 w = np.zeros([oi.visOi.nchannel, oi.nwav])
@@ -209,19 +242,27 @@ for c in range(oi.visOi.nchannel):
     w[c, :] = oi.wav*1e6
 
 # create visRefs fromn star_indices indicated in the config file
-visRefs = [oi.visOi.visRefMean*0 for oi in objOis]
-ampRefs = [oi.visOi.visRefMean*0 for oi in objOis]
+printinf("Creating the visibility reference from {:d} star observations.".format(len(starOis)))
+visRefs = [oi.visOi.visRef.mean(axis = 0)*0 for oi in objOis]
 for k in range(len(objOis)):
     planet_ind = cfg["general"]["reduce"][k]
+    ampRef = np.zeros([oi.visOi.nchannel, oi.nwav])
+    visRef = np.zeros([oi.visOi.nchannel, oi.nwav])    
     for ind in cfg["planet_ois"][planet_ind]["star_indices"]:
         # not all star files have ben loaded, so we cannot trust the order and we need to explicitly look for the correct one
         starOis_ind = [soi.filename for soi in starOis].index(DATA_DIR+cfg["star_ois"][ind]["filename"]) 
         soi = starOis[starOis_ind]
-        visRefs[k] = visRefs[k]+soi.visOi.visRefMean
-        ampRefs[k] = ampRefs[k]+np.abs(soi.visOi.visRefMean)
-    visRefs[k] = visRefs[k]/len(cfg["planet_ois"][planet_ind]["star_indices"])
-    ampRefs[k] = ampRefs[k]/len(cfg["planet_ois"][planet_ind]["star_indices"])
+        visRef = visRef+soi.visOi.visRef.mean(axis = 0)
+        ampRef = ampRef+np.abs(soi.visOi.visRef.mean(axis = 0))
+    ###===### 
+    visRef = np.zeros([oi.visOi.nchannel, oi.nwav])
+    for ind in range(len(starOis)):
+        soi = starOis[ind]
+        visRef = visRef+soi.visOi.visRef.mean(axis = 0)                                                         
+    ###===###
+    visRefs[k] = ampRef/len(cfg["planet_ois"][planet_ind]["star_indices"])*np.exp(1j*np.angle(visRef/len(objOis)))#/len(cfg["planet_ois"][planet_ind]["star_indices"])))#/len(starOis))) ###===###
 
+    
 # in DF_SWAP mode, thephase reference of the star cannot be used. We need to extract the phase ref from the SWAP observations
 if PHASEREF_MODE == "DF_SWAP":
     printinf("DF_SWAP mode set.")
@@ -266,11 +307,13 @@ if PHASEREF_MODE == "DF_SWAP":
 
     
 # subtract the reference phase to each OB
+printinf("Subtracting phase reference to each planet OI.")
 for k in range(len(objOis)):
     oi = objOis[k]
     oi.visOi.addPhase(-np.angle(visRefs[k]))
 
 # calculate the phi values
+printinf("Calculating the phi values")
 for k in range(len(objOis)):
     oi = objOis[k]
     oi.visOi.phi_values = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], 'complex64')
@@ -281,10 +324,11 @@ for k in range(len(objOis)):
             oi.visOi.phi_values[dit, c, :] = np.exp(1j*phase[dit, c, :])
 
 # create projector matrices
+printinf("Create projector matrices (p_matrices)")
 for k in range(len(objOis)):
     oi = objOis[k]
     # calculate the projector
-    wav = oi.wav*1e7
+    wav = oi.wav*1e6
     vectors = np.zeros([STAR_ORDER+1, oi.nwav], 'complex64')
     thisVisRef = visRefs[k]
     thisAmpRef = np.abs(thisVisRef)
@@ -303,11 +347,13 @@ for k in range(len(objOis)):
             oi.visOi.p_matrices[dit, c, :, :] = np.dot(np.diag(oi.visOi.phi_values[dit, c, :]), np.dot(P[c, :, :], np.diag(oi.visOi.phi_values[dit, c, :].conj())))
 
 # change frame
+printinf("Switching on-planet visibilities to planet reference frame")
 for k in range(len(objOis)):
     oi = objOis[k]
     oi.visOi.recenterPhase(RA_SOLUTIONS[k], DEC_SOLUTIONS[k], radec = True)
 
 # project visibilities
+printinf("Projecting visibilities orthogonally to speckle noise")
 for k in range(len(objOis)):
     oi = objOis[k]
     for dit in range(oi.visOi.ndit):
@@ -325,7 +371,6 @@ for k in range(len(objOis)):
     visRef = np.reshape(visRef, [s[0], s[1]*s[2]])
     W_obs.append(cs.cov(visRef.T))
     Z_obs.append(cs.pcov(visRef.T))
-
 
 # calculate all H matrices
 printinf("Starting calculation of H matrices")
@@ -385,7 +430,7 @@ nb = objOis[0].visOi.nchannel
 nt = len(objOis)
 mtot = int(np.sum([np.sum(oi.visOi.m) for oi in objOis]))
 H = np.zeros([mtot, nwav], 'complex64')
-U = np.zeros([mtot], 'complex64')
+Y = np.zeros([mtot], 'complex64')
 r = 0
 for k in range(len(objOis)):
     oi = objOis[k]
@@ -394,29 +439,27 @@ for k in range(len(objOis)):
             m = int(oi.visOi.m[dit, c])
             # TODO: useful?
 #            if (inj_coeffs is None):
-            G = np.diag(np.abs(ampRefs[k][c, :])/resolved_star_models[k][dit, c, :]*chromatic_coupling[k, :])
+            G = np.diag(np.abs(visRefs[k][c, :])/resolved_star_models[k][dit, c, :]*chromatic_coupling[k, :])
 #            else:
 #            G = np.diag((inj_coeffs[k][dit, c, 0]*np.abs(ampRefs[k][c, :])+inj_coeffs[k][dit, c, 1]*(oi.wav - np.min(oi.wav))*1e6*np.abs(ampRefs[k][c, :]))/resolved_star_models[k][dit, c, :]*chromatic_coupling[k, :])
             H[r:(r+m), :] = np.dot(oi.visOi.h_matrices[dit, c, 0:m, :], G)
-            U[r:r+m] = np.dot(oi.visOi.h_matrices[dit, c, 0:m, :], oi.visOi.visRef[dit, c, :])            
+            Y[r:r+m] = np.dot(oi.visOi.h_matrices[dit, c, 0:m, :], oi.visOi.visRef[dit, c, :])            
             r = r+m
             
-U2 = cs.conj_extended(U)
+Y2 = cs.conj_extended(Y)
 H2 = cs.conj_extended(H)
 
 # block calculate W2inv*H2, cov(U2)*W2inv*H2, and pcov(U2)*W2inv*H2
 nb = objOis[0].visOi.nchannel
 nwav = objOis[0].nwav
 W2invH2 = np.zeros([2*mtot, nwav], 'complex64')
-covU2W2invH2 = np.zeros([2*mtot, nwav], 'complex64')
-pcovU2W2invH2 = np.zeros([2*mtot, nwav], 'complex64')
+covY2W2invH2 = np.zeros([2*mtot, nwav], 'complex64')
+pcovY2W2invH2 = np.zeros([2*mtot, nwav], 'complex64')
 r = 0
 nwav = objOis[0].nwav
 nb = objOis[0].visOi.nchannel
 Omega = np.zeros([nb*nwav, nb*nwav], 'complex64')    
 
-import time
-t0 = time.time()
 printinf("Starting calculation of W2invH2")
 counter = 1
 for k in range(len(objOis)):
@@ -442,8 +485,10 @@ for k in range(len(objOis)):
             m = int(oi.visOi.m[dit, c])            
             H_elem_c_sp = scipy.sparse.csc_matrix(oi.visOi.h_matrices[dit, c, 0:m, :])
             H_elem[this_r:this_r+m, c*oi.nwav:(c+1)*nwav] = H_elem_c_sp.todense()
-            Wc_sp = scipy.sparse.csr_matrix(np.diag(oi.visOi.visErr[dit, c, :].real**2+oi.visOi.visErr[dit, c, :].imag**2))
-            Zc_sp = scipy.sparse.csr_matrix(np.diag(oi.visOi.visErr[dit, c, :].real**2-oi.visOi.visErr[dit, c, :].imag**2))
+#            Wc_sp = scipy.sparse.csr_matrix(np.diag(oi.visOi.visErr[dit, c, :].real**2+oi.visOi.visErr[dit, c, :].imag**2))
+#            Zc_sp = scipy.sparse.csr_matrix(np.diag(oi.visOi.visErr[dit, c, :].real**2-oi.visOi.visErr[dit, c, :].imag**2))
+            Wc_sp = scipy.sparse.csr_matrix(oi.visOi.visRefCov[dit, c, :, :])
+            Zc_sp = scipy.sparse.csr_matrix(oi.visOi.visRefPcov[dit, c, :, :])
             Wc_sp = (Omega_c_sp.dot(Wc_sp)).dot(cs.adj(Omega_c_sp))
             Zc_sp = (Omega_c_sp.dot(Zc_sp)).dot(Omega_c_sp.T)
             W_elem_c = np.dot((H_elem_c_sp.dot(Wc_sp)).todense(), cs.adj(H_elem_c_sp).todense())
@@ -477,46 +522,48 @@ for k in range(len(objOis)):
         [A, B, C, D] = [W2_elem_inv[0:this_dit_mtot, 0:this_dit_mtot], W2_elem_inv[0:this_dit_mtot, this_dit_mtot:], W2_elem_inv[this_dit_mtot:, 0:this_dit_mtot], W2_elem_inv[this_dit_mtot:, this_dit_mtot:]]
         W2invH2[r:r+this_dit_mtot, :] = np.dot(A, H[r:r+this_dit_mtot])+np.dot(B, H[r:r+this_dit_mtot].conj())
         W2invH2[mtot+r:mtot+r+this_dit_mtot, :] = np.dot(C, H[r:r+this_dit_mtot])+np.dot(D, H[r:r+this_dit_mtot].conj())
-        covU2W2invH2[r:r+this_dit_mtot, :] = np.dot(W_elem, W2invH2[r:r+this_dit_mtot, :]) + np.dot(Z_elem, W2invH2[mtot+r:r+mtot+this_dit_mtot, :])
-        covU2W2invH2[mtot+r:mtot+r+this_dit_mtot, :] = np.dot(cs.adj(Z_elem), W2invH2[r:r+this_dit_mtot, :]) + np.dot(np.conj(W_elem), W2invH2[mtot+r:r+mtot+this_dit_mtot, :])
-        pcovU2W2invH2[r:r+this_dit_mtot, :] = np.dot(Z_elem, W2invH2[r:r+this_dit_mtot, :]) + np.dot(W_elem, W2invH2[mtot+r:r+mtot+this_dit_mtot, :])
-        pcovU2W2invH2[mtot+r:mtot+r+this_dit_mtot, :] = np.dot(cs.adj(W_elem), W2invH2[r:r+this_dit_mtot, :]) + np.dot(np.conj(Z_elem), W2invH2[mtot+r:r+mtot+this_dit_mtot, :]) 
+        covY2W2invH2[r:r+this_dit_mtot, :] = np.dot(W_elem, W2invH2[r:r+this_dit_mtot, :]) + np.dot(Z_elem, W2invH2[mtot+r:r+mtot+this_dit_mtot, :])
+        covY2W2invH2[mtot+r:mtot+r+this_dit_mtot, :] = np.dot(cs.adj(Z_elem), W2invH2[r:r+this_dit_mtot, :]) + np.dot(np.conj(W_elem), W2invH2[mtot+r:r+mtot+this_dit_mtot, :])
+        pcovY2W2invH2[r:r+this_dit_mtot, :] = np.dot(Z_elem, W2invH2[r:r+this_dit_mtot, :]) + np.dot(W_elem, W2invH2[mtot+r:r+mtot+this_dit_mtot, :])
+        pcovY2W2invH2[mtot+r:mtot+r+this_dit_mtot, :] = np.dot(cs.adj(W_elem), W2invH2[r:r+this_dit_mtot, :]) + np.dot(np.conj(Z_elem), W2invH2[mtot+r:r+mtot+this_dit_mtot, :]) 
         r = r+this_dit_mtot
-printinf("Calculation done in: "+str(time.time()-t0)+"s")
 
 # calculate spectrum
 printinf("Calculating contrast spectrum")
-A = np.real(np.dot(cs.adj(U2), W2invH2))
+A = np.real(np.dot(cs.adj(Y2), W2invH2))
 B = np.linalg.inv(np.real(np.dot(cs.adj(H2), W2invH2)))
 C = np.dot(A, B)
 
 # calculate errors
 printinf("Calculating covariance matrix")
-covU2 = np.dot(cs.adj(W2invH2), covU2W2invH2)
-pcovU2 = np.dot(W2invH2.T, pcovU2W2invH2)
-Cerr = np.dot(B, np.dot(0.5*np.real(covU2+pcovU2), B.T))
+covY2 = np.dot(cs.adj(W2invH2), covY2W2invH2)
+pcovY2 = np.dot(W2invH2.T, pcovY2W2invH2)
+Cerr = np.dot(B, np.dot(0.5*np.real(covY2+pcovY2), B.T))
 
 # save raw contrast spectrum and diagonal error terms in a file
-printinf("Writting spectrum in file")
-f = open(OUTPUT_DIR+"/"+CONTRAST_FILENAME, 'w')
-f.write("File created automatically by script "+dargs["script"]+" on "+datetime.utcnow().strftime("%Y-%d-%MT%H:%m:%SZ")+"\n")
-f.write("Wav(um) Flux(10W/m/cm2) Error(W/m2)\n")
-for k in range(len(C)):
-    f.write("{:.4e} {:.4e} {:.4e}\n".format(w[0, k], C[k], np.sqrt(Cerr[k, k])))
-f.close()
-
-# save the full covariance matrix
-printinf("Writting covariance matrix in file")
-f = open(OUTPUT_DIR+"/"+COVARIANCE_FILENAME, 'w')
-f.write("File created automatically by script "+dargs["script"]+" on "+datetime.utcnow().strftime("%Y-%d-%MT%H:%m:%SZ")+"\n")
-f.write("Covariance matrix (W2/m4)\n")
-for k in range(len(C)):
-    for j in range(len(C)):
-        f.write('{:.8e} '.format(Cerr[k, j]))
-    f.write('\n')
-f.close()
+printinf("Writting spectrum in FITS file")
+saveFitsSpectrum(OUTPUT_DIR+"/"+SPECTRUM_FILENAME, wav, C, Cerr, C, Cerr)
 
 
+if not(FIGDIR is None):
+    for oi in objOis:
+        fig = plt.figure(figsize = (10, 8))
+        visProj = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex")
+        for dit, c in itertools.product(range(oi.visOi.ndit), range(oi.visOi.nchannel)):
+            visProj[dit, c, :] = np.dot(oi.visOi.h_matrices[dit, c, :, :], oi.visOi.visRef[dit, c, :])
+        gPlot.reImPlot(w, visProj.mean(axis = 0), subtitles = oi.basenames, fig = fig)
+        gPlot.reImPlot(w, np.dot(np.dot(oi.visOi.h_matrices, G), C).mean(axis = 0), fig = fig)
+        plt.savefig(FIGDIR+"/spectrum_fit_"+str(k)+".pdf")
+
+    fig = plt.figure(figsize=(10, 4))
+    plt.plot(wav, C, '.-')
+    plt.ylim(0, 5.5e-4)
+    plt.xlabel("Wavelength ($\mu\mathrm{m}$)")
+    plt.ylabel("Contrast")
+    plt.savefig(FIGDIR+"/contrast.pdf")
+
+
+    
 stop()
 
 
@@ -554,6 +601,9 @@ data[:, 0] = wav
 data[:, 1] = np.dot(A, B)
 #np.savetxt("betapicb_contrast.txt", data)
 #np.savetxt("betapicb_errors.txt", Cerr)
+
+
+
 
 stop
 
