@@ -189,7 +189,7 @@ general = {"datadir": dargs["datadir"],
            "gofast": dargs['gofast'],
            "noinv": dargs['noinv'],
            "contrast_file": dargs['contrast_file'],
-           "figdir": None
+           "figdir": None,
            "n_opd": int(dargs["nopd"]),
            "n_ra": int(dargs["nra"]),
            "n_dec": int(dargs["ndec"]),
