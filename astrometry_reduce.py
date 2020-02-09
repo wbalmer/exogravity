@@ -192,7 +192,7 @@ for c in range(oi.visOi.nchannel):
     
 # create the visibility reference. This step depends on PHASEREF_MODE (DF_STAR or DF_SWAP)
 printinf("Creating the visibility reference from {:d} star observations.".format(len(starOis)))
-visRefs = [oi.visOi.visRefMean*0 for oi in objOis]
+visRefs = [oi.visOi.visRef.mean(axis=0) for oi in objOis]
 for k in range(len(objOis)):
     planet_ind = cfg["general"]["reduce"][k]
     ampRef = np.zeros([oi.visOi.nchannel, oi.nwav])
