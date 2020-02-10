@@ -29,8 +29,10 @@ from datetime import datetime
 import cleanGravity as gravity
 from cleanGravity import complexstats as cs
 import glob
+from cleanGravity.utils import loadFitsSpectrum, saveFitsSpectrum
 from utils import *
 import itertools
+from astropy.io import fits
 try:
     import ruamel.yaml
     RUAMEL = True
@@ -97,6 +99,7 @@ PHASEREF_MODE = cfg["general"]["phaseref_mode"]
 CONTRAST_FILE = cfg["general"]["contrast_file"]
 NO_INV = cfg["general"]["noinv"]
 GO_FAST = cfg["general"]["gofast"]
+REFLAG = cfg['general']['reflag']
 FIGDIR = cfg["general"]["figdir"]
 PLANET_FILES = [DATA_DIR+cfg["planet_ois"][k]["filename"] for k in cfg["general"]["reduce"]] # list of files corresponding to planet exposures
 if not("swap_ois" in cfg.keys()):
@@ -110,9 +113,11 @@ STAR_DIAMETER = cfg["general"]["star_diameter"]
 
 # OVERWRITE SOME OF THE CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
 if "gofast" in dargs.keys():
-    GO_FAST = dargs["gofast"] # bypass value from config file
+    GO_FAST = bool(dargs["gofast"]) # bypass value from config file
+if "reflag" in dargs.keys():
+    REFLAG = bool(dargs["reflag"]) # bypass value from config file
 if "noinv" in dargs.keys():
-    NO_INV = dargs["noinv"] # bypass value from config file    
+    NO_INV = bool(dargs["noinv"]) # bypass value from config file    
 if "figdir" in dargs.keys():
     FIGDIR = dargs["figdir"] # bypass value from config file    
 
@@ -180,6 +185,8 @@ for filename in PLANET_FILES+STAR_FILES+SWAP_FILES:
     printinf("Loading file "+filename)
     if (PHASEREF_MODE == "DF_SWAP") and (filename in STAR_FILES):
         oi = gravity.GravityDualfieldAstrored(filename, corrMet = "drs", extension = 10, corrDisp = "drs")
+    elif filename in PLANET_FILES:
+        oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = 10, corrDisp = cfg["general"]["corr_disp"], reflag = REFLAG)
     else:
         oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = 10, corrDisp = cfg["general"]["corr_disp"])
     if filename in PLANET_FILES:
@@ -191,18 +198,20 @@ for filename in PLANET_FILES+STAR_FILES+SWAP_FILES:
     else:
         starOis.append(oi)
         printinf("File is on star")
-        
+
 # flag points based on FT value
 ftThreshold = np.array([np.abs(oi.visOi.visDataFt).mean() for oi in objOis]).mean()/10.0
 printinf("Flag data below FT threshold of {:.2e}".format(ftThreshold))
 for oi in objOis:
-    indx = np.where(np.abs(oi.visOi.visDataFt) < ftThreshold)
-    oi.visOi.flagPoints(indx)
+    a, b = np.where(np.abs(oi.visOi.visDataFt).mean(axis = -1) < ftThreshold)
+    (a, b, c) = np.meshgrid(a, b, range(oi.nwav))
+    oi.visOi.flagPoints((a, b, c))
+
 
 # normalize by FT flux to get rid of atmospheric transmission variations
 printinf("Normalizing visibilities to FT coherent flux.")
 for oi in objOis+starOis:
-    oi.visOi.scaleVisibilities(1.0/np.abs(oi.visOi.visDataFt).mean())
+    oi.visOi.scaleVisibilities(1.0/np.abs(oi.visOi.visDataFt).mean(axis = -1))
 
 
 # replace data by the mean over all DITs if go_fast has been requested in the config file
@@ -332,7 +341,7 @@ for k in range(len(objOis)):
     vectors = np.zeros([STAR_ORDER+1, oi.nwav], 'complex64')
     thisVisRef = visRefs[k]
     thisAmpRef = np.abs(thisVisRef)
-    oi.visOi.visStar = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], 'complex64')
+#    oi.visOi.visStar = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], 'complex64')
     oi.visOi.p_matrices = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav, oi.nwav], 'complex64')
     P = np.zeros([oi.visOi.nchannel, oi.nwav, oi.nwav], 'complex64')
     for c in range(oi.visOi.nchannel):
@@ -441,10 +450,15 @@ for k in range(len(objOis)):
 #            if (inj_coeffs is None):
             G = np.diag(np.abs(visRefs[k][c, :])/resolved_star_models[k][dit, c, :]*chromatic_coupling[k, :])
 #            else:
-#            G = np.diag((inj_coeffs[k][dit, c, 0]*np.abs(ampRefs[k][c, :])+inj_coeffs[k][dit, c, 1]*(oi.wav - np.min(oi.wav))*1e6*np.abs(ampRefs[k][c, :]))/resolved_star_models[k][dit, c, :]*chromatic_coupling[k, :])
+#                G = np.diag((inj_coeffs[k][dit, c, 0]*np.abs(ampRefs[k][c, :])+inj_coeffs[k][dit, c, 1]*(oi.wav - np.min(oi.wav))*1e6*np.abs(ampRefs[k][c, :]))/resolved_star_models[k][dit, c, :]*chromatic_coupling[k, :])
             H[r:(r+m), :] = np.dot(oi.visOi.h_matrices[dit, c, 0:m, :], G)
-            Y[r:r+m] = np.dot(oi.visOi.h_matrices[dit, c, 0:m, :], oi.visOi.visRef[dit, c, :])            
+            # filter bad datapoints by setting the corresponding columns of H to 0
+            indx = np.where(oi.visOi.flag[dit, c, :])
+            H[r:(r+m), indx] = 0
+            # Y is different from the paper, as we don't really use "U" here. So we don't divide by abs(visRefs[k]), and we add G in the definition of H
+            Y[r:r+m] = np.dot(oi.visOi.h_matrices[dit, c, 0:m, :], oi.visOi.visRef[dit, c, :])
             r = r+m
+
             
 Y2 = cs.conj_extended(Y)
 H2 = cs.conj_extended(H)
@@ -458,9 +472,9 @@ pcovY2W2invH2 = np.zeros([2*mtot, nwav], 'complex64')
 r = 0
 nwav = objOis[0].nwav
 nb = objOis[0].visOi.nchannel
-Omega = np.zeros([nb*nwav, nb*nwav], 'complex64')    
+#Ginv = np.zeros([nb*nwav, nb*nwav], 'complex64')    
 
-printinf("Starting calculation of W2invH2")
+printinf("Starting Calculation of W2invH2")
 counter = 1
 for k in range(len(objOis)):
     oi = objOis[k]
@@ -480,8 +494,10 @@ for k in range(len(objOis)):
         W2_elem_inv = np.zeros([2*this_dit_mtot, 2*this_dit_mtot], 'complex64')
         Z_elem = np.zeros([this_dit_mtot, this_dit_mtot], 'complex64')
         for c in range(nchannel):
-            Omega_c_sp = scipy.sparse.csc_matrix(np.diag(oi.visOi.phi_values[dit, c, :]))
-            Omega[c*oi.nwav:(c+1)*oi.nwav, c*oi.nwav:(c+1)*oi.nwav] = Omega_c_sp.todense()
+#            Omega_c_sp = scipy.sparse.csc_matrix(np.diag(oi.visOi.phi_values[dit, c, :]))
+#            Omega[c*oi.nwav:(c+1)*oi.nwav, c*oi.nwav:(c+1)*oi.nwav] = Omega_c_sp.todense()
+#            Ginv_c_sp = scipy.sparse.csc_matrix(np.diag(1.0/np.abs(visRefs[k][c, :])))
+ #           Ginv[c*oi.nwav:(c+1)*oi.nwav, c*oi.nwav:(c+1)*oi.nwav] = Ginv_c_sp.todense()
             m = int(oi.visOi.m[dit, c])            
             H_elem_c_sp = scipy.sparse.csc_matrix(oi.visOi.h_matrices[dit, c, 0:m, :])
             H_elem[this_r:this_r+m, c*oi.nwav:(c+1)*nwav] = H_elem_c_sp.todense()
@@ -489,8 +505,8 @@ for k in range(len(objOis)):
 #            Zc_sp = scipy.sparse.csr_matrix(np.diag(oi.visOi.visErr[dit, c, :].real**2-oi.visOi.visErr[dit, c, :].imag**2))
             Wc_sp = scipy.sparse.csr_matrix(oi.visOi.visRefCov[dit, c, :, :])
             Zc_sp = scipy.sparse.csr_matrix(oi.visOi.visRefPcov[dit, c, :, :])
-            Wc_sp = (Omega_c_sp.dot(Wc_sp)).dot(cs.adj(Omega_c_sp))
-            Zc_sp = (Omega_c_sp.dot(Zc_sp)).dot(Omega_c_sp.T)
+#            Wc_sp = (Ginv_c_sp.dot(Wc_sp)).dot(cs.adj(Ginv_c_sp))
+#            Zc_sp = (Ginv_c_sp.dot(Zc_sp)).dot(Ginv_c_sp.T)
             W_elem_c = np.dot((H_elem_c_sp.dot(Wc_sp)).todense(), cs.adj(H_elem_c_sp).todense())
             Z_elem_c = np.dot((H_elem_c_sp.dot(Zc_sp)).todense(), H_elem_c_sp.T.todense())
             W_elem[this_r:this_r+m, this_r:this_r+m] = W_elem_c
@@ -545,19 +561,63 @@ printinf("Writting spectrum in FITS file")
 saveFitsSpectrum(OUTPUT_DIR+"/"+SPECTRUM_FILENAME, wav, C, Cerr, C, Cerr)
 
 
-if not(FIGDIR is None):
-    for oi in objOis:
-        fig = plt.figure(figsize = (10, 8))
-        visProj = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex")
-        for dit, c in itertools.product(range(oi.visOi.ndit), range(oi.visOi.nchannel)):
-            visProj[dit, c, :] = np.dot(oi.visOi.h_matrices[dit, c, :, :], oi.visOi.visRef[dit, c, :])
-        gPlot.reImPlot(w, visProj.mean(axis = 0), subtitles = oi.basenames, fig = fig)
-        gPlot.reImPlot(w, np.dot(np.dot(oi.visOi.h_matrices, G), C).mean(axis = 0), fig = fig)
-        plt.savefig(FIGDIR+"/spectrum_fit_"+str(k)+".pdf")
+# now we want to recontruct the planet visibilities and the best fit obtained, in the original
+# pipeline reference frame. The idea is that we want to compare the residuals to the pipeline
+# original errors to check from problems and for cosmic rays
+for k in range(len(objOis)):
+    oi = objOis[k]
+    # we'll store the recontructed planet visibilities and the fit directly in the oi object
+    oi.visOi.visPlanet = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex")
+    oi.visOi.visPlanetFit = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex")    
+    for dit, c in itertools.product(range(oi.visOi.ndit), range(oi.visOi.nchannel)):
+        oi.visOi.visPlanet[dit, c, :] = np.dot(oi.visOi.h_matrices[dit, c, :, :], oi.visOi.visRef[dit, c, :])
+        oi.visOi.visPlanet[dit, c, -STAR_ORDER-1] = 0 # this projects orthogonally to the speckle noise
+        oi.visOi.visPlanet[dit, c, :] = np.dot(cs.adj(oi.visOi.h_matrices[dit, c, :, :]), oi.visOi.visPlanet[dit, c, :])        
+        oi.visOi.visPlanet[dit, c, :] = oi.visOi.visPlanet[dit, c, :]*np.exp(1j*np.angle(visRefs[k][c, :]))        
+        oi.visOi.visPlanetFit[dit, c, :] = C*np.abs(visRefs[k])[c, :]
+#        oi.visOi.visPlanetFit[dit, c, :] = np.dot((oi.visOi.h_matrices[dit, c, :, :]), oi.visOi.visPlanetFit[dit, c, :])                
+#        oi.visOi.visPlanetFit[dit, c, -STAR_ORDER-1:] = oi.visOi.visPlanet[dit, c, -STAR_ORDER-1:]
+#        oi.visOi.visPlanetFit[dit, c, :] = np.dot(cs.adj(oi.visOi.h_matrices[dit, c, :, :]), oi.visOi.visPlanetFit[dit, c, :])        
+        oi.visOi.visPlanetFit[dit, c, :] = oi.visOi.visPlanetFit[dit, c, :]*np.exp(1j*np.angle(visRefs[k][c, :]))
 
+# now we are going to calculate the residuals, and the distances in units of error bars
+for k in range(len(objOis)):
+    oi = objOis[k]
+    oi.visOi.residuals = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex")
+    oi.visOi.fitDistance = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav])
+    for dit, c in itertools.product(range(oi.visOi.ndit), range(oi.visOi.nchannel)):
+        oi.visOi.residuals[dit, c, :] = oi.visOi.visPlanet[dit, c, :]-oi.visOi.visPlanetFit[dit, c, :]
+        realErr = np.real(0.5*(np.diag(oi.visOi.visRefCov[dit, c])+np.diag(oi.visOi.visRefPcov[dit, c])))**0.5
+        imagErr = np.real(0.5*(np.diag(oi.visOi.visRefCov[dit, c])-np.diag(oi.visOi.visRefPcov[dit, c])))**0.5   
+        oi.visOi.fitDistance[dit, c, :] = np.abs(np.real(oi.visOi.residuals[dit, c])/realErr+1j*np.imag(oi.visOi.residuals[dit, c])/imagErr)
+
+        
+# now we want to save a new flag to indicate which points are badly fitted. But ONLY if gofast is set to False (we can't flag point if the individual DITs have been binned)
+if (GO_FAST==False):
+    printinf("Reflagging bad datapoints based on fit results (5 sigmas)")
+    for k in range(len(objOis)):
+        oi = objOis[k]
+        hdul = fits.open(oi.filename, mode = "update")
+        if "REFLAG" in [hdu.name for hdu in hdul]:
+            hdul.pop([hdu.name for hdu in hdul].index("REFLAG"))
+        reflag = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], 'bool')
+        indx = np.where(oi.visOi.fitDistance > 5)
+        reflag[indx] = True
+        reflag = reflag | oi.visOi.flag
+        hdul.append(fits.BinTableHDU.from_columns([fits.Column(name="REFLAG", format = "210L", array = reflag.reshape([60, 210]))], name = "REFLAG"))
+        hdul.writeto(oi.filename, overwrite = "True")
+        hdul.close()
+        printinf("A total of {:d} bad points have be reflagged for file {}".format(len(indx[0]), oi.filename))
+        
+if not(FIGDIR is None):
+    for k in range(len(objOis)):
+        oi = objOis[k]
+        fig = plt.figure(figsize = (10, 8))
+        gPlot.reImPlot(w, (oi.visOi.visPlanet*(1-oi.visOi.flag)).mean(axis = 0)*np.exp(-1j*np.angle(visRefs[k])), subtitles = oi.basenames, fig = fig)
+        gPlot.reImPlot(w, oi.visOi.visPlanetFit.mean(axis = 0)*np.exp(-1j*np.angle(visRefs[k])), fig = fig)
+        plt.savefig(FIGDIR+"/spectrum_fit_"+str(k)+".pdf")
     fig = plt.figure(figsize=(10, 4))
     plt.plot(wav, C, '.-')
-    plt.ylim(0, 5.5e-4)
     plt.xlabel("Wavelength ($\mu\mathrm{m}$)")
     plt.ylabel("Contrast")
     plt.savefig(FIGDIR+"/contrast.pdf")

@@ -14,6 +14,7 @@ Args:
   nra, ndec (int, optional): number of points over the RA and DEC range (the more points, the longer the calculation)
   nopd (int, optional): number of points to use when creating the OPD chi2 maps in the astrometry reduction. 100 is the default and is usually fine.
   gofast (bool, optional): if set, average over DITs to accelerate calculations (Usage: --gofast, or gofast=True)
+  reflag (str, optional): can be set to True in order to use the REFLAG table to filter bad datapoints
   noinv (bool, optional): if set, avoid inversion of the covariance matrix and replace it with a gaussian elimination approach. 
                           This can sometimes speed up calculations, but it depends. As a general rule, the more DITs you have, 
                           the less likely it is that noinv will be beneficial. It also depends on resolution, with higher resolution
@@ -114,6 +115,9 @@ if not("gofast" in dargs.keys()):
 if not("noinv" in dargs.keys()):
     printwar("Value for noinv option not set. Defaulting to noinv=False")
     dargs['noinv'] = False
+if not("reflag" in dargs.keys()):
+    printwar("Value for reflag not given. Defaulting to reflag = True")
+    dargs['reflag'] = True
 if not("contrast_file" in dargs.keys()):
     printwar("Contrast file not given. Constant contrast will be used")
     dargs['contrast_file'] = None
@@ -188,6 +192,7 @@ general = {"datadir": dargs["datadir"],
            "corr_disp": dargs['corr_disp'],                      
            "gofast": dargs['gofast'],
            "noinv": dargs['noinv'],
+           "reflag": dargs['reflag'],           
            "contrast_file": dargs['contrast_file'],
            "figdir": None,
            "n_opd": int(dargs["nopd"]),
