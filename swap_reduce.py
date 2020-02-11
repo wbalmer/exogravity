@@ -221,6 +221,45 @@ for k in range(len(ois1)):
 raBest = np.array([oi.visOi.fit['xBest'] for oi in ois2]+[-oi.visOi.fit['xBest'] for oi in ois1])
 decBest = np.array([oi.visOi.fit['yBest'] for oi in ois2]+[-oi.visOi.fit['yBest'] for oi in ois1])
 
+
+if not(FIGDIR is None):
+    for k in range(len(objOis)):
+        oi = objOis[k]
+        fig = plt.figure(figsize=(10, 8))
+        gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.visRef-oi.visOi.bestFitStar, oi.visOi.flag).mean(axis = 0), subtitles = oi.basenames, fig = fig)
+        gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.bestFit-oi.visOi.bestFitStar, oi.visOi.flag).mean(axis = 0), fig = fig)
+        plt.legend([oi.filename.split("/")[-1], "Astrometry fit"])
+        plt.savefig(FIGDIR+"/astrometry_fit_"+str(k)+".pdf")
+
+    fig = plt.figure(figsize = (10, 10))
+    n = int(np.ceil(np.sqrt(len(objOis))))
+    for k in range(len(objOis)):
+        ax = fig.add_subplot(n, n, k+1)
+        oi = objOis[k]
+        name = oi.filename.split('/')[-1]
+        ax.imshow(chi2Maps[k].sum(axis = 0).T, origin = "lower", extent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)])
+        ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
+        ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
+        ax.set_title(name)
+    plt.tight_layout()
+    plt.savefig(FIGDIR+"/astrometry_chi2Maps.pdf")
+
+    fig = plt.figure(figsize = (6, 6))
+    ax = fig.add_subplot(111)
+    ax.plot(raBest, decBest, "o")
+    val, vec = np.linalg.eig(cov)
+    e1 = matplotlib.patches.Ellipse((np.mean(raBest), np.mean(decBest)), 2*val[0]**0.5, 2*val[1]**0.5, angle = np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color = 'k', linewidth=2, linestyle = '--')
+    e2 = matplotlib.patches.Ellipse((np.mean(raBest), np.mean(decBest)), 3*2*val[0]**0.5, 3*2*val[1]**0.5, angle = np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color = 'k', linewidth=2)    
+    ax.add_patch(e1)
+    ax.add_patch(e2)    
+    ax.plot([np.mean(raBest)], [np.mean(decBest)], '+k')
+    ax.text(raBest.mean()+val[0]**0.5, decBest.mean()+val[1]**0.5, "RA={:.2f}+-{:.3f}\nDEC={:.2f}+-{:.3f}\nCOV={:.2f}".format(np.mean(raBest), cov[0, 0]**0.5, np.mean(decBest), cov[1, 1]**0.5, cov[0, 1]/np.sqrt(cov[0, 0]*cov[1, 1])))
+    ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
+    ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
+    plt.axis("equal")
+    plt.savefig(FIGDIR+"/solution.pdf")
+    
+
 """
 oi = objOis[-3]
 plt.figure()

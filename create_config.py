@@ -25,6 +25,7 @@ Args:
   star_diameter (float, optional): the diameter of the central star (in mas, to scale the visibility amplitude). Default is 0. 
   corr_met (str, optional): can be "sylvestre" or "drs", or possibly "none" depending on which formula to use for the metrology correction
   corr_disp (str, optional): can be "sylvestre" or "drs", or possibly "none" depending on which formula to use for the dispersion correction
+  swap_target (str, optional): the name of the target for the swap observations if off-axis mode
 
 
 Example:
@@ -107,8 +108,8 @@ if not("nopd" in dargs.keys()):
     printwar("nopd not provided in args. Defaulting to nopd=100")
     dargs["nopd"] = 100
 if not("star_order" in dargs.keys()):
-    printwar("star_order not provided in args. Defaulting to star_order=3")
-    dargs["star_order"] = 3    
+    printwar("star_order not provided in args. Defaulting to star_order=4")
+    dargs["star_order"] = 4
 if not("gofast" in dargs.keys()):
     printwar("Value for gofast option not set. Defaulting to gofast=False")
     dargs['gofast'] = False    
@@ -131,7 +132,11 @@ if not("corr_met" in dargs.keys()):
     dargs["corr_met"] = "sylvestre"
 if not("corr_disp" in dargs.keys()):
     printwar("corr_disp not specified. Using 'sylvestre'")
-    dargs["corr_disp"] = "sylvestre"        
+    dargs["corr_disp"] = "sylvestre"
+
+if not("swap_target" in dargs.keys()):
+    printwar("SWAP target name not given. Assuming the observation to be on-axis (no swap)")
+    dargs["swap_target"] = "%%"
 
     
 # load the datafiles
@@ -156,16 +161,16 @@ for k in range(len(datafiles)):
     printinf("Loading "+filename)
     oi = gravity.GravityOiFits(filename)
     d = (oi.sObjX**2+oi.sObjY**2 )**0.5
-    msg = "Fiber distance is {:.2f} mas. ".format(d)
+    msg = "Target is {}; Fiber distance is {:.2f} mas. ".format(oi.target, d)
     if d < 10:
         printinf(msg+"Assuming file to be on star.")
         starOis.append(oi)
-    elif d < 500:
+    elif oi.target == dargs['swap_target']:
+        printinf(msg+"Target is {}. This is a SWAP!".format(oi.target))
+        swapOis.append(oi)
+    else:
         printinf(msg+"Assuming file to be on planet.")
         objOis.append(oi)
-    else:
-        printinf(msg+"Assuming file to be part of a swap.")
-        swapOis.append(oi)
 
 if ((dargs["ralim"] is None) or (dargs["ralim"] is None)):
     ra = np.mean(np.array([oi.sObjX for oi in objOis]))

@@ -39,7 +39,7 @@ def args_to_dict(args):
     d['script'] = args[0]
     for arg in args[1:]:
         if arg[0:2] == '--':
-            d[arg[2:]] = True
+            d[arg[2:]] = "True"
         elif len(arg.split('=', 1)) == 2:
             d[arg.split('=', 1)[0]] = arg.split('=', 1)[1]
         else:

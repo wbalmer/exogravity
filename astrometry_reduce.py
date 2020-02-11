@@ -144,18 +144,24 @@ for filename in PLANET_FILES+STAR_FILES+SWAP_FILES:
         starOis.append(oi)
         printinf("File is on star")
         
-
 # flag points based on FT value
 ftThreshold = np.array([np.abs(oi.visOi.visDataFt).mean() for oi in objOis]).mean()/10.0
 printinf("Flag data below FT threshold of {:.2e}".format(ftThreshold))
 for oi in objOis:
-    indx = np.where(np.abs(oi.visOi.visDataFt) < ftThreshold)
-    oi.visOi.flagPoints(indx)
+#    oi.visOi.visDataFt[:, 0, :] = ftThreshold/100
+#    oi.visOi.visDataFt[:, 1, :] = ftThreshold/100
+#    oi.visOi.visDataFt[:, 2, :] = ftThreshold/100
+#    oi.visOi.visDataFt[:, 3, :] = ftThreshold/100    
+    a, b = np.where(np.abs(oi.visOi.visDataFt).mean(axis = -1) < ftThreshold)
+    (a, b, c) = np.meshgrid(a, b, range(oi.nwav))
+    oi.visOi.flagPoints((a, b, c))
 
+    
 # replace data by the mean over all DITs if go_fast has been requested in the config file
 printinf("gofast flag is set. Averaging over DITs")
 for oi in objOis+starOis: # mean should not be calculated on swap before phase correction
     if (GO_FAST):
+        printinf("Averaging file {}".format(oi.filename))
         oi.computeMean()
         oi.visOi.recenterPhase(oi.sObjX, oi.sObjY)
         u = np.copy(oi.visOi.u)
@@ -164,14 +170,14 @@ for oi in objOis+starOis: # mean should not be calculated on swap before phase c
         v = np.copy(oi.visOi.v)
         oi.visOi.v = np.zeros([1, oi.visOi.nchannel])        
         oi.visOi.v[0, :] = np.mean(v, axis = 0)                
-        oi.visOi.visData = np.tile(np.sum(oi.visOi.visData*~oi.visOi.flag, axis = 0)/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
-        oi.visOi.visRef = np.tile(np.sum(oi.visOi.visRef*~oi.visOi.flag, axis = 0)/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
-        oi.visOi.uCoord = np.tile(np.sum(oi.visOi.uCoord*~oi.visOi.flag, axis = 0)/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
-        oi.visOi.vCoord = np.tile(np.sum(oi.visOi.vCoord*~oi.visOi.flag, axis = 0)/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
-        oi.visOi.visCov = np.tile(np.sum(oi.visOi.visCov*~oi.visOi.flagCov, axis = 0)/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
-        oi.visOi.visPcov = np.tile(np.sum(oi.visOi.visPcov*~oi.visOi.flagCov, axis = 0)/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
-        oi.visOi.visRefCov = np.tile(np.sum(oi.visOi.visRefCov*~oi.visOi.flagCov, axis = 0)/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
-        oi.visOi.visRefPcov = np.tile(np.sum(oi.visOi.visRefPcov*~oi.visOi.flagCov, axis = 0)/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
+        oi.visOi.visData = np.tile(np.mean(oi.visOi.visData*~oi.visOi.flag, axis = 0), [1, 1, 1])#/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
+        oi.visOi.visRef = np.tile(np.mean(oi.visOi.visRef*~oi.visOi.flag, axis = 0), [1, 1, 1])#/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
+        oi.visOi.uCoord = np.tile(np.mean(oi.visOi.uCoord*~oi.visOi.flag, axis = 0), [1, 1, 1])#/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
+        oi.visOi.vCoord = np.tile(np.mean(oi.visOi.vCoord*~oi.visOi.flag, axis = 0), [1, 1, 1])#/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
+        oi.visOi.visCov = np.tile(np.mean(oi.visOi.visCov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
+        oi.visOi.visPcov = np.tile(np.mean(oi.visOi.visPcov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
+        oi.visOi.visRefCov = np.tile(np.mean(oi.visOi.visRefCov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
+        oi.visOi.visRefPcov = np.tile(np.mean(oi.visOi.visRefPcov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
         oi.visOi.flag = np.tile(np.any(oi.visOi.flag, axis = 0), [1, 1, 1])
         oi.visOi.flagCov = np.tile(np.any(oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])        
         oi.visOi.ndit = 1
@@ -181,7 +187,7 @@ for oi in objOis+starOis: # mean should not be calculated on swap before phase c
         oi.visOi.visErr = np.zeros([1, oi.visOi.nchannel, oi.nwav], 'complex')    
         oi.visOi.visErr[0, :, :] = np.copy(oi.visOi.visErrMean)
 
-    
+
 # calculate the very useful w for plotting
 oi = objOis[0]
 w = np.zeros([oi.visOi.nchannel, oi.nwav])
@@ -193,7 +199,7 @@ for c in range(oi.visOi.nchannel):
     
 # create the visibility reference. This step depends on PHASEREF_MODE (DF_STAR or DF_SWAP)
 printinf("Creating the visibility reference from {:d} star observations.".format(len(starOis)))
-visRefs = [oi.visOi.visRef.mean(axis=0) for oi in objOis]
+visRefs = [oi.visOi.visRef.mean(axis=0)*0 for oi in objOis]
 for k in range(len(objOis)):
     planet_ind = cfg["general"]["reduce"][k]
     ampRef = np.zeros([oi.visOi.nchannel, oi.nwav])
@@ -261,7 +267,7 @@ for k in range(len(objOis)):
     oi = objOis[k]
     oi.visOi.addPhase(-np.angle(visRefs[k]))
 
-    
+
 # prepare chi2Maps
 printinf("RA grid: [{:.2f}, {:.2f}] with {:d} points".format(RA_LIM[0], RA_LIM[1], N_RA))
 printinf("DEC grid: [{:.2f}, {:.2f}] with {:d} points".format(DEC_LIM[0], DEC_LIM[1], N_DEC))
@@ -452,6 +458,15 @@ for k in range(len(objOis)):
             # calculate the corresponding fits
             if dzeta[-1] < 0:
                 dzeta[-1] = 0
+                A[:, -1] = 0
+                A2 = cs.conj_extended(A)
+                if NO_INV:
+                    W2invA2[:, -1] = scipy.sparse.linalg.spsolve(W2sp, A2[:, -1])
+                else:
+                    W2invA2 = np.dot(W2inv, A2)
+                left = np.real( np.dot(cs.adj(cs.conj_extended(visRefNoBad)), W2invA2) )
+                right = np.real( np.dot(cs.adj(A2), W2invA2) )
+                dzeta = np.transpose(np.dot(left, np.linalg.pinv(right)))
             bestFit[dit, c, :] = np.dot(A2, dzeta)[0:oi.nwav]
             dzeta[-1] = 0
             bestFitStar[dit, c, :] = np.dot(A2, dzeta)[0:oi.nwav] # star only

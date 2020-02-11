@@ -113,11 +113,11 @@ STAR_DIAMETER = cfg["general"]["star_diameter"]
 
 # OVERWRITE SOME OF THE CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
 if "gofast" in dargs.keys():
-    GO_FAST = bool(dargs["gofast"]) # bypass value from config file
+    GO_FAST = dargs["gofast"].lower()=="true" # bypass value from config file
 if "reflag" in dargs.keys():
-    REFLAG = bool(dargs["reflag"]) # bypass value from config file
+    REFLAG = dargs["reflag"].lower()=="true" # bypass value from config file
 if "noinv" in dargs.keys():
-    NO_INV = bool(dargs["noinv"]) # bypass value from config file    
+    NO_INV = dargs["noinv"].lower()=="true" # bypass value from config file    
 if "figdir" in dargs.keys():
     FIGDIR = dargs["figdir"] # bypass value from config file    
 
@@ -199,14 +199,18 @@ for filename in PLANET_FILES+STAR_FILES+SWAP_FILES:
         starOis.append(oi)
         printinf("File is on star")
 
+
 # flag points based on FT value
 ftThreshold = np.array([np.abs(oi.visOi.visDataFt).mean() for oi in objOis]).mean()/10.0
 printinf("Flag data below FT threshold of {:.2e}".format(ftThreshold))
 for oi in objOis:
+#    oi.visOi.visDataFt[:, 0, :] = ftThreshold/100
+#    oi.visOi.visDataFt[:, 1, :] = ftThreshold/100
+#    oi.visOi.visDataFt[:, 2, :] = ftThreshold/100    
+#    oi.visOi.visDataFt[:, 3, :] = ftThreshold/100        
     a, b = np.where(np.abs(oi.visOi.visDataFt).mean(axis = -1) < ftThreshold)
     (a, b, c) = np.meshgrid(a, b, range(oi.nwav))
     oi.visOi.flagPoints((a, b, c))
-
 
 # normalize by FT flux to get rid of atmospheric transmission variations
 printinf("Normalizing visibilities to FT coherent flux.")
@@ -218,32 +222,32 @@ for oi in objOis+starOis:
 printinf("gofast flag is set. Averaging over DITs")
 for oi in objOis+starOis: # mean should not be calculated on swap before phase correction
     if (GO_FAST):
+        printinf("Averaging file {}".format(oi.filename))        
         oi.computeMean()
-        oi.visOi.recenterPhase(oi.sObjX, oi.sObjY)
+        oi.visOi.recenterPhase(oi.sObjX, oi.sObjY, radec = True)
         u = np.copy(oi.visOi.u)
         oi.visOi.u = np.zeros([1, oi.visOi.nchannel])
         oi.visOi.u[0, :] = np.mean(u, axis = 0)
         v = np.copy(oi.visOi.v)
         oi.visOi.v = np.zeros([1, oi.visOi.nchannel])        
         oi.visOi.v[0, :] = np.mean(v, axis = 0)                
-        oi.visOi.visData = np.tile(np.sum(oi.visOi.visData*~oi.visOi.flag, axis = 0)/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
-        oi.visOi.visRef = np.tile(np.sum(oi.visOi.visRef*~oi.visOi.flag, axis = 0)/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
-        oi.visOi.uCoord = np.tile(np.sum(oi.visOi.uCoord*~oi.visOi.flag, axis = 0)/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
-        oi.visOi.vCoord = np.tile(np.sum(oi.visOi.vCoord*~oi.visOi.flag, axis = 0)/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
-        oi.visOi.visCov = np.tile(np.sum(oi.visOi.visCov*~oi.visOi.flagCov, axis = 0)/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
-        oi.visOi.visPcov = np.tile(np.sum(oi.visOi.visPcov*~oi.visOi.flagCov, axis = 0)/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
-        oi.visOi.visRefCov = np.tile(np.sum(oi.visOi.visRefCov*~oi.visOi.flagCov, axis = 0)/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
-        oi.visOi.visRefPcov = np.tile(np.sum(oi.visOi.visRefPcov*~oi.visOi.flagCov, axis = 0)/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
+        oi.visOi.visData = np.tile(np.mean(oi.visOi.visData*~oi.visOi.flag, axis = 0), [1, 1, 1])#/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
+        oi.visOi.visRef = np.tile(np.mean(oi.visOi.visRef*~oi.visOi.flag, axis = 0), [1, 1, 1])#/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
+        oi.visOi.uCoord = np.tile(np.mean(oi.visOi.uCoord*~oi.visOi.flag, axis = 0), [1, 1, 1])#/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
+        oi.visOi.vCoord = np.tile(np.mean(oi.visOi.vCoord*~oi.visOi.flag, axis = 0), [1, 1, 1])#/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
+        oi.visOi.visCov = np.tile(np.mean(oi.visOi.visCov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
+        oi.visOi.visPcov = np.tile(np.mean(oi.visOi.visPcov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
+        oi.visOi.visRefCov = np.tile(np.mean(oi.visOi.visRefCov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
+        oi.visOi.visRefPcov = np.tile(np.mean(oi.visOi.visRefPcov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
         oi.visOi.flag = np.tile(np.any(oi.visOi.flag, axis = 0), [1, 1, 1])
         oi.visOi.flagCov = np.tile(np.any(oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])        
         oi.visOi.ndit = 1
         oi.ndit = 1        
-        oi.visOi.recenterPhase(-oi.sObjX, -oi.sObjY)        
+        oi.visOi.recenterPhase(-oi.sObjX, -oi.sObjY, radec = True)
         oi.computeMean()
         oi.visOi.visErr = np.zeros([1, oi.visOi.nchannel, oi.nwav], 'complex')    
-        oi.visOi.visErr[0, :, :] = np.copy(oi.visOi.visErrMean)
-
-    
+        oi.visOi.visErr[0, :, :] = np.copy(oi.visOi.visErrMean)        
+        
 # calculate the very useful w for plotting
 oi = objOis[0]
 w = np.zeros([oi.visOi.nchannel, oi.nwav])
@@ -341,19 +345,21 @@ for k in range(len(objOis)):
     vectors = np.zeros([STAR_ORDER+1, oi.nwav], 'complex64')
     thisVisRef = visRefs[k]
     thisAmpRef = np.abs(thisVisRef)
-#    oi.visOi.visStar = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], 'complex64')
     oi.visOi.p_matrices = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav, oi.nwav], 'complex64')
     P = np.zeros([oi.visOi.nchannel, oi.nwav, oi.nwav], 'complex64')
-    for c in range(oi.visOi.nchannel):
-        for j in range(STAR_ORDER+1):
-            vectors[j, :] = np.abs(thisAmpRef[c, :])*(wav-np.mean(wav))**j # pourquoi ampRef et pas visRef ?
-        for l in range(oi.nwav):
-            x = np.zeros(oi.nwav)
-            x[l] = 1
-            coeffs = np.linalg.lstsq(vectors.T, x, rcond=-1)[0]
-            P[c, :, l] = x - np.dot(vectors.T, coeffs)
-        for dit in range(oi.visOi.ndit):
+    for dit in range(oi.visOi.ndit): # the loop of DIT number is necessary because of bad points mgmt (bad_indices depends on dit)
+        for c in range(oi.visOi.nchannel):
+            for j in range(STAR_ORDER+1):
+                vectors[j, :] = np.abs(thisAmpRef[c, :])*(wav-np.mean(wav))**j # pourquoi ampRef et pas visRef ?
+            bad_indices = np.where(oi.visOi.flag[dit, c, :])
+            vectors[:, bad_indices] = 0
+            for l in range(oi.nwav):
+                x = np.zeros(oi.nwav)
+                x[l] = 1
+                coeffs = np.linalg.lstsq(vectors.T, x, rcond=-1)[0]
+                P[c, :, l] = x - np.dot(vectors.T, coeffs)
             oi.visOi.p_matrices[dit, c, :, :] = np.dot(np.diag(oi.visOi.phi_values[dit, c, :]), np.dot(P[c, :, :], np.diag(oi.visOi.phi_values[dit, c, :].conj())))
+            
 
 # change frame
 printinf("Switching on-planet visibilities to planet reference frame")
@@ -367,19 +373,21 @@ for k in range(len(objOis)):
     oi = objOis[k]
     for dit in range(oi.visOi.ndit):
         for c in range(oi.visOi.nchannel):
+            bad_indices = np.where(oi.visOi.flag[dit, c, :])
+            oi.visOi.visRef[dit, c, bad_indices] = 0        
             oi.visOi.visRef[dit, c, :] = np.dot(oi.visOi.p_matrices[dit, c, :, :], oi.visOi.visRef[dit, c, :])
     oi.visOi.visRefMean = oi.visOi.visRef.mean(axis = 0)
 
 # estimate the covariance matrices
-W_obs = []
-Z_obs = []
-for k in range(len(objOis)):
-    oi = objOis[k]
-    visRef = oi.visOi.visRef
-    s = np.shape(visRef)
-    visRef = np.reshape(visRef, [s[0], s[1]*s[2]])
-    W_obs.append(cs.cov(visRef.T))
-    Z_obs.append(cs.pcov(visRef.T))
+#W_obs = []
+#Z_obs = []
+#for k in range(len(objOis)):
+#    oi = objOis[k]
+#    visRef = oi.visOi.visRef
+#    s = np.shape(visRef)
+#    visRef = np.reshape(visRef, [s[0], s[1]*s[2]])
+#    W_obs.append(cs.cov(visRef.T))
+#    Z_obs.append(cs.pcov(visRef.T))
 
 # calculate all H matrices
 printinf("Starting calculation of H matrices")
@@ -547,7 +555,11 @@ for k in range(len(objOis)):
 # calculate spectrum
 printinf("Calculating contrast spectrum")
 A = np.real(np.dot(cs.adj(Y2), W2invH2))
-B = np.linalg.inv(np.real(np.dot(cs.adj(H2), W2invH2)))
+try:
+    B = np.linalg.inv(np.real(np.dot(cs.adj(H2), W2invH2)))
+except:
+    printwar("Problem with the inversion of model. Is the matrix singular? Trying a pseudo inverse instead.")
+    B = np.linalg.pinv(np.real(np.dot(cs.adj(H2), W2invH2)))
 C = np.dot(A, B)
 
 # calculate errors
@@ -575,9 +587,9 @@ for k in range(len(objOis)):
         oi.visOi.visPlanet[dit, c, :] = np.dot(cs.adj(oi.visOi.h_matrices[dit, c, :, :]), oi.visOi.visPlanet[dit, c, :])        
         oi.visOi.visPlanet[dit, c, :] = oi.visOi.visPlanet[dit, c, :]*np.exp(1j*np.angle(visRefs[k][c, :]))        
         oi.visOi.visPlanetFit[dit, c, :] = C*np.abs(visRefs[k])[c, :]
-#        oi.visOi.visPlanetFit[dit, c, :] = np.dot((oi.visOi.h_matrices[dit, c, :, :]), oi.visOi.visPlanetFit[dit, c, :])                
-#        oi.visOi.visPlanetFit[dit, c, -STAR_ORDER-1:] = oi.visOi.visPlanet[dit, c, -STAR_ORDER-1:]
-#        oi.visOi.visPlanetFit[dit, c, :] = np.dot(cs.adj(oi.visOi.h_matrices[dit, c, :, :]), oi.visOi.visPlanetFit[dit, c, :])        
+        oi.visOi.visPlanetFit[dit, c, :] = np.dot((oi.visOi.h_matrices[dit, c, :, :]), oi.visOi.visPlanetFit[dit, c, :])                
+        oi.visOi.visPlanetFit[dit, c, -STAR_ORDER-1:] = 0#oi.visOi.visPlanet[dit, c, -STAR_ORDER-1:]
+        oi.visOi.visPlanetFit[dit, c, :] = np.dot(cs.adj(oi.visOi.h_matrices[dit, c, :, :]), oi.visOi.visPlanetFit[dit, c, :])        
         oi.visOi.visPlanetFit[dit, c, :] = oi.visOi.visPlanetFit[dit, c, :]*np.exp(1j*np.angle(visRefs[k][c, :]))
 
 # now we are going to calculate the residuals, and the distances in units of error bars
@@ -604,7 +616,7 @@ if (GO_FAST==False):
         indx = np.where(oi.visOi.fitDistance > 5)
         reflag[indx] = True
         reflag = reflag | oi.visOi.flag
-        hdul.append(fits.BinTableHDU.from_columns([fits.Column(name="REFLAG", format = "210L", array = reflag.reshape([60, 210]))], name = "REFLAG"))
+        hdul.append(fits.BinTableHDU.from_columns([fits.Column(name="REFLAG", format = str(oi.nwav)+"L", array = reflag.reshape([oi.visOi.nchannel*oi.visOi.ndit, oi.visOi.nwav]))], name = "REFLAG"))
         hdul.writeto(oi.filename, overwrite = "True")
         hdul.close()
         printinf("A total of {:d} bad points have be reflagged for file {}".format(len(indx[0]), oi.filename))
