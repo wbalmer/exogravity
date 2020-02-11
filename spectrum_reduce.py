@@ -359,7 +359,6 @@ for k in range(len(objOis)):
                 coeffs = np.linalg.lstsq(vectors.T, x, rcond=-1)[0]
                 P[c, :, l] = x - np.dot(vectors.T, coeffs)
             oi.visOi.p_matrices[dit, c, :, :] = np.dot(np.diag(oi.visOi.phi_values[dit, c, :]), np.dot(P[c, :, :], np.diag(oi.visOi.phi_values[dit, c, :].conj())))
-            
 
 # change frame
 printinf("Switching on-planet visibilities to planet reference frame")
@@ -582,14 +581,14 @@ for k in range(len(objOis)):
     oi.visOi.visPlanet = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex")
     oi.visOi.visPlanetFit = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex")    
     for dit, c in itertools.product(range(oi.visOi.ndit), range(oi.visOi.nchannel)):
-        oi.visOi.visPlanet[dit, c, :] = np.dot(oi.visOi.h_matrices[dit, c, :, :], oi.visOi.visRef[dit, c, :])
-        oi.visOi.visPlanet[dit, c, -STAR_ORDER-1] = 0 # this projects orthogonally to the speckle noise
-        oi.visOi.visPlanet[dit, c, :] = np.dot(cs.adj(oi.visOi.h_matrices[dit, c, :, :]), oi.visOi.visPlanet[dit, c, :])        
+        oi.visOi.visPlanet[dit, c, :] = np.dot(oi.visOi.p_matrices[dit, c, :, :], oi.visOi.visRef[dit, c, :])
+#        oi.visOi.visPlanet[dit, c, -STAR_ORDER-1] = 0 # this projects orthogonally to the speckle noise
+#        oi.visOi.visPlanet[dit, c, :] = np.dot(cs.adj(oi.visOi.h_matrices[dit, c, :, :]), oi.visOi.visPlanet[dit, c, :])        
         oi.visOi.visPlanet[dit, c, :] = oi.visOi.visPlanet[dit, c, :]*np.exp(1j*np.angle(visRefs[k][c, :]))        
         oi.visOi.visPlanetFit[dit, c, :] = C*np.abs(visRefs[k])[c, :]
-        oi.visOi.visPlanetFit[dit, c, :] = np.dot((oi.visOi.h_matrices[dit, c, :, :]), oi.visOi.visPlanetFit[dit, c, :])                
-        oi.visOi.visPlanetFit[dit, c, -STAR_ORDER-1:] = 0#oi.visOi.visPlanet[dit, c, -STAR_ORDER-1:]
-        oi.visOi.visPlanetFit[dit, c, :] = np.dot(cs.adj(oi.visOi.h_matrices[dit, c, :, :]), oi.visOi.visPlanetFit[dit, c, :])        
+        bad_indices = np.where(oi.visOi.flag[dit, c, :])
+        oi.visOi.visPlanetFit[dit, c, bad_indices] = 0
+        oi.visOi.visPlanetFit[dit, c, :] = np.dot((oi.visOi.p_matrices[dit, c, :, :]), oi.visOi.visPlanetFit[dit, c, :])                
         oi.visOi.visPlanetFit[dit, c, :] = oi.visOi.visPlanetFit[dit, c, :]*np.exp(1j*np.angle(visRefs[k][c, :]))
 
 # now we are going to calculate the residuals, and the distances in units of error bars
@@ -620,9 +619,9 @@ if (GO_FAST==False):
         hdul.writeto(oi.filename, overwrite = "True")
         hdul.close()
         printinf("A total of {:d} bad points have be reflagged for file {}".format(len(indx[0]), oi.filename))
-        
+
 if not(FIGDIR is None):
-    for k in range(len(objOis)):
+    for k in range(len(objOis)*0+4):
         oi = objOis[k]
         fig = plt.figure(figsize = (10, 8))
         gPlot.reImPlot(w, (oi.visOi.visPlanet*(1-oi.visOi.flag)).mean(axis = 0)*np.exp(-1j*np.angle(visRefs[k])), subtitles = oi.basenames, fig = fig)
