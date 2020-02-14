@@ -174,10 +174,15 @@ for oi in objOis+starOis: # mean should not be calculated on swap before phase c
         oi.visOi.visRef = np.tile(np.mean(oi.visOi.visRef*~oi.visOi.flag, axis = 0), [1, 1, 1])#/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
         oi.visOi.uCoord = np.tile(np.mean(oi.visOi.uCoord*~oi.visOi.flag, axis = 0), [1, 1, 1])#/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
         oi.visOi.vCoord = np.tile(np.mean(oi.visOi.vCoord*~oi.visOi.flag, axis = 0), [1, 1, 1])#/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
-        oi.visOi.visCov = np.tile(np.mean(oi.visOi.visCov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
-        oi.visOi.visPcov = np.tile(np.mean(oi.visOi.visPcov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
-        oi.visOi.visRefCov = np.tile(np.mean(oi.visOi.visRefCov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
-        oi.visOi.visRefPcov = np.tile(np.mean(oi.visOi.visRefPcov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
+#        oi.visOi.visCov = np.tile(np.mean(oi.visOi.visCov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
+#        oi.visOi.visPcov = np.tile(np.mean(oi.visOi.visPcov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
+#        oi.visOi.visRefCov = np.tile(np.mean(oi.visOi.visRefCov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
+#        oi.visOi.visRefPcov = np.tile(np.mean(oi.visOi.visRefPcov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
+        for dit, c in itertools.product(range(1, oi.visOi.ndit), range(oi.visOi.nchannel)):
+            oi.visOi.visRefCov[0, c] = oi.visOi.visRefCov[0, c] + oi.visOi.visRefCov[dit, c]
+            oi.visOi.visRefPcov[0, c] = oi.visOi.visRefPcov[0, c] + oi.visOi.visRefPcov[dit, c]
+        oi.visOi.visRefCov = oi.visOi.visRefCov[0:1, :]/oi.visOi.ndit
+        oi.visOi.visRefPcov = oi.visOi.visRefPcov[0:1, :]/oi.visOi.ndit        
         oi.visOi.flag = np.tile(np.any(oi.visOi.flag, axis = 0), [1, 1, 1])
         oi.visOi.flagCov = np.tile(np.any(oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])        
         oi.visOi.ndit = 1
@@ -316,8 +321,8 @@ for k in range(len(objOis)):
             visRefNoBad = np.copy(oi.visOi.visRef[dit, c, :])
             visRefNoBad[bad_indices] = 0            
             # cov and pcov
-            W = oi.visOi.visRefCov[dit, c, :, :] #np.diag((np.real(oi.visOi.visErr[dit, c, :])**2+np.imag(oi.visOi.visErr[dit, c, :])**2)) 
-            Z = oi.visOi.visRefPcov[dit, c, :, :] #np.diag((np.real(oi.visOi.visErr[dit, c, :])**2-np.imag(oi.visOi.visErr[dit, c, :])**2))
+            W = oi.visOi.visRefCov[dit, c].todense() #np.diag((np.real(oi.visOi.visErr[dit, c, :])**2+np.imag(oi.visOi.visErr[dit, c, :])**2)) 
+            Z = oi.visOi.visRefPcov[dit, c].todense() #np.diag((np.real(oi.visOi.visErr[dit, c, :])**2-np.imag(oi.visOi.visErr[dit, c, :])**2))
             W2 = cs.extended_covariance(W, Z).real
             if NO_INV:
                 W2sp = scipy.sparse.csr_matrix(W2)
@@ -421,8 +426,8 @@ for k in range(len(objOis)):
             visRefNoBad = np.copy(oi.visOi.visRef[dit, c, :])
             visRefNoBad[bad_indices] = 0                        
             # cov and pcov
-            W = oi.visOi.visRefCov[dit, c, :, :] #np.diag((np.real(oi.visOi.visErr[dit, c, :])**2+np.imag(oi.visOi.visErr[dit, c, :])**2)) 
-            Z = oi.visOi.visRefPcov[dit, c, :, :] #np.diag((np.real(oi.visOi.visErr[dit, c, :])**2-np.imag(oi.visOi.visErr[dit, c, :])**2))
+            W = oi.visOi.visRefCov[dit, c].todense() #np.diag((np.real(oi.visOi.visErr[dit, c, :])**2+np.imag(oi.visOi.visErr[dit, c, :])**2)) 
+            Z = oi.visOi.visRefPcov[dit, c].todense() #np.diag((np.real(oi.visOi.visErr[dit, c, :])**2-np.imag(oi.visOi.visErr[dit, c, :])**2))
             W2 = cs.extended_covariance(W, Z).real
             if NO_INV:
                 W2sp = scipy.sparse.csr_matrix(W2)
