@@ -26,7 +26,7 @@ Args:
   corr_met (str, optional): can be "sylvestre" or "drs", or possibly "none" depending on which formula to use for the metrology correction
   corr_disp (str, optional): can be "sylvestre" or "drs", or possibly "none" depending on which formula to use for the dispersion correction
   swap_target (str, optional): the name of the target for the swap observations if off-axis mode
-
+  calib_strategy (str, optional): "all" to use all star files to calibrate visibility reference. "Nearest" to use the two nearest. On-axis only
 
 Example:
   Minimal
@@ -136,8 +136,11 @@ if not("corr_disp" in dargs.keys()):
 
 if not("swap_target" in dargs.keys()):
     printwar("SWAP target name not given. Assuming the observation to be on-axis (no swap)")
-    dargs["swap_target"] = "%%"
+    dargs["swap_target"] = "Unknown"
 
+if not("calib_strategy" in dargs.keys()):
+    printwar("calib strategy not given. Using default 'nearest'")
+    dargs["calib_strategy"] = "nearest"    
     
 # load the datafiles
 datafiles = glob.glob(dargs["datadir"]+'/GRAVI*astrored*.fits')
@@ -218,8 +221,13 @@ for k in range(len(objOis)):
          "mjd": oi.mjd,
          "sObjX": oi.sObjX,
          "sObjY": oi.sObjY,
-         "star_indices": ["s"+str(j) for j in [starOis.index(oiBefore), starOis.index(oiAfter)]]
      }
+    if dargs["calib_strategy"].lower() == "nearest":
+        d["star_indices"] = ["s"+str(j) for j in [starOis.index(oiBefore), starOis.index(oiAfter)]]
+    elif dargs["calib_strategy"].lower() == "all":
+        d["star_indices"] = ["s"+str(j) for j in range(len(starOis))]
+    else:
+        printerr("Unknown calibration strategy: {}".format(dargs["calib_strategy"]))
     planet_files["p"+str(k)] = d
 
 star_files = {}
