@@ -136,7 +136,7 @@ if not("corr_disp" in dargs.keys()):
 
 if not("swap_target" in dargs.keys()):
     printwar("SWAP target name not given. Assuming the observation to be on-axis (no swap)")
-    dargs["swap_target"] = "Unknown"
+    dargs["swap_target"] = "%%"
 
 if not("calib_strategy" in dargs.keys()):
     printwar("calib strategy not given. Using default 'nearest'")
