@@ -87,8 +87,12 @@ ra_std = cov_mat[0, 0]**0.5
 dec_std = cov_mat[1, 1]**0.5
 cov = cov_mat[0, 1]/(ra_std*dec_std)
 
+mjd_mean = np.mean(np.array([cfg["planet_ois"][k]["mjd"] for k in cfg["planet_ois"].keys()]))
+
+printinf("Mean MJD for the observation: MJD={:.2f}".format(mjd_mean))
 printinf("Best astrometric solution is: RA={:.2f} mas, DEC={:.2f} mas".format(ra_best, dec_best))
-printinf("The dispersion on the solutions ({:d} files) is: stdRA={:.4f} mas, stdDEC={:.4f} mas, cov={:.4f}".format(nfiles, ra_std, dec_std, cov)) 
+printinf("The dispersion on the solutions ({:d} files) is: stdRA={:.4f} mas, stdDEC={:.4f} mas, cov={:.4f}".format(nfiles, ra_std, dec_std, cov))
+printinf("One liner CSV: {:.2f},{:.2f},{:.2f},{:.4f},{:.4f},{:.4f}".format(mjd_mean, ra_best, dec_best, ra_std, dec_std, cov))
 
 if dargs['noplot']:
     sys.exit()
