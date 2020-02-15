@@ -12,6 +12,7 @@ Args:
                            the value contained in the YAML file.
   noinv (bool, optional): if set, avoid inversion of the covariance matrix and replace it with a gaussian elimination approach. 
                           Bypass the value in the YAML file. (Usage: --noinv, or noinv=True, or noinv=False)
+  save_residuals (bool, optional): if set, save the residuals in npy files. figdir must also be provided for this option to be used
 
 Example:
   python astrometry_reduce config_file=full/path/to/yourconfig.yml
@@ -61,6 +62,9 @@ CONFIG_FILE = dargs["config_file"]
 if not(os.path.isfile(CONFIG_FILE)):
     raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
 
+if not("save_residuals") in dargs.keys():
+    dargs['save_residuals'] = False
+    
 # READ THE CONFIGURATION FILE
 if RUAMEL:
     cfg = ruamel.yaml.load(open(CONFIG_FILE, "r"), Loader=ruamel.yaml.RoundTripLoader)
@@ -103,6 +107,10 @@ if not(FIGDIR is None):
         os.makedirs(FIGDIR)
         printinf("Directory {} was not found and has been created".format(FIGDIR))
 
+# THROW AN ERROR IF save_residuals requested, but not FIGDIR provided
+if dargs['save_residuals'] and (FIGDIR is None):
+    printerr("save_residuals option requested, but not figdir provided.")
+        
 # extract list of useful star ois from the list indicated in the star_indices fields of the config file:
 star_indices = []
 for k in cfg["general"]["reduce"]:
@@ -125,24 +133,28 @@ objOis = [] # contains the OIs on the planet itself
 swapOis = [] # first position of the swap (only in DF_SWAP mode)
 
 
-
 # LOAD DATA
-t = time.time()
-for filename in PLANET_FILES+STAR_FILES+SWAP_FILES:
+for filename in PLANET_FILES:
     printinf("Loading file "+filename)
-    if (PHASEREF_MODE == "DF_SWAP") and (filename in STAR_FILES):
+    oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = 10, corrDisp = cfg["general"]["corr_disp"])
+    objOis.append(oi)
+    printinf("File is on planet. FT coherent flux: {:.2e}".format(np.mean(np.abs(oi.visOi.visDataFt))))        
+
+for filename in STAR_FILES:
+    printinf("Loading file "+filename)
+    if (PHASEREF_MODE == "DF_SWAP"):
         oi = gravity.GravityDualfieldAstrored(filename, corrMet = "drs", extension = 10, corrDisp = "drs")
     else:
         oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = 10, corrDisp = cfg["general"]["corr_disp"])
-    if filename in PLANET_FILES:
-        objOis.append(oi)
-        printinf("File is on planet. FT coherent flux: {:.2e}".format(np.mean(np.abs(oi.visOi.visDataFt))))        
-    elif filename in SWAP_FILES:
-        swapOis.append(oi)
-        printinf("File is from a SWAP")
-    else:
-        starOis.append(oi)
-        printinf("File is on star")
+    starOis.append(oi)
+    printinf("File is on star")
+                                              
+for filename in SWAP_FILES:
+    printinf("Loading file "+filename)
+    oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = 10, corrDisp = cfg["general"]["corr_disp"])
+    swapOis.append(oi)
+    printinf("File is from a SWAP")
+    
         
 # flag points based on FT value
 ftThreshold = np.array([np.abs(oi.visOi.visDataFt).mean() for oi in objOis]).mean()/10.0
@@ -216,12 +228,13 @@ for k in range(len(objOis)):
         visRef = visRef+soi.visOi.visRef.mean(axis = 0)
         ampRef = ampRef+np.abs(soi.visOi.visRef.mean(axis = 0))
     ###===### 
-    visRef = np.zeros([oi.visOi.nchannel, oi.nwav])
-    for ind in range(len(starOis)):
-        soi = starOis[ind]
-        visRef = visRef+soi.visOi.visRef.mean(axis = 0)                                                         
+#    visRef = np.zeros([oi.visOi.nchannel, oi.nwav])
+#    for ind in range(len(starOis)):
+#        soi = starOis[ind]
+#        visRef = visRef+soi.visOi.visRef.mean(axis = 0)                                                         
     ###===###
-    visRefs[k] = ampRef/len(cfg["planet_ois"][planet_ind]["star_indices"])*np.exp(1j*np.angle(visRef/len(objOis)))#/len(cfg["planet_ois"][planet_ind]["star_indices"])))#/len(starOis))) ###===### 
+#    visRefs[k] = ampRef/len(cfg["planet_ois"][planet_ind]["star_indices"])*np.exp(1j*np.angle(visRef/len(objOis)))#/len(cfg["planet_ois"][planet_ind]["star_indices"])))#/len(starOis))) ###===###
+    visRefs[k] = ampRef/len(cfg["planet_ois"][planet_ind]["star_indices"])*np.exp(1j*np.angle(visRef/len(cfg["planet_ois"][planet_ind]["star_indices"])))#/len(starOis))) ###===###     
 
 # in DF_SWAP mode, thephase reference of the star cannot be used. We need to extract the phase ref from the SWAP observations
 if PHASEREF_MODE == "DF_SWAP":
@@ -401,8 +414,8 @@ decBest = np.zeros(len(objOis))
 for k in range(len(objOis)):
     chi2Map[k, :, :] = np.sum(chi2Maps[k], axis = 0)
     (a, b) = np.where(chi2Map[k, :, :] == np.min(chi2Map[k, :, :]))
-    raBest[k] = raValues[a]
-    decBest[k] = decValues[b]
+    raBest[k] = raValues[a[0]]
+    decBest[k] = decValues[b[0]]
 
 cov = np.cov(raBest, decBest)
 printinf("RA: {:.2f}+-{:.3f} mas".format(np.mean(raBest), cov[0, 0]**0.5))
@@ -414,9 +427,9 @@ for k in range(len(objOis)):
     oi = objOis[k]
     bestFitStar = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex")
     bestFit = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex")    
-    (a, b) = np.where(chi2Maps[k].sum(axis = 0) == np.min(chi2Maps[k].sum(axis = 0)))
-    thisraBest = raValues[a]
-    thisdecBest = decValues[b]
+    thisraBest = raBest[k]
+    thisdecBest = decBest[k]
+    visRef = visRefs[k]    
     opdBest = oi.visOi.getOpd(thisraBest, thisdecBest)
     printinf("Recaculating best fit for planet OI {:d} of {:d}).".format(k+1, len(objOis)))
     for dit in range(oi.visOi.ndit):
@@ -528,8 +541,17 @@ if not(FIGDIR is None):
     ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
     plt.axis("equal")
     plt.savefig(FIGDIR+"/solution.pdf")
-        
 
+    
+if dargs['save_residuals']:
+    for k in range(len(objOis)):
+        oi = objOis[k]
+        name = oi.filename.split('/')[-1].split('.fits')[0]
+        visPla = oi.visOi.visRef - oi.visOi.bestFitStar
+        visRes = np.ma.masked_array(oi.visOi.visRef - oi.visOi.bestFit, oi.visOi.flag).data
+        visResMask = np.ma.masked_array(oi.visOi.visRef - oi.visOi.bestFit, oi.visOi.flag).mask
+        np.save(FIGDIR+"/"+name+"_residuals.npy", visRes)
+        np.save(FIGDIR+"/"+name+"_mask.npy", visResMask)    
 
 stop()
 
