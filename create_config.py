@@ -168,6 +168,7 @@ for k in range(len(datafiles)):
     if d < 10:
         printinf(msg+"Assuming file to be on star.")
         starOis.append(oi)
+#        objOis.append(oi)        
     elif oi.target == dargs['swap_target']:
         printinf(msg+"Target is {}. This is a SWAP!".format(oi.target))
         swapOis.append(oi)

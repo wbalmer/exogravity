@@ -154,7 +154,7 @@ for filename in SWAP_FILES:
     oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = 10, corrDisp = cfg["general"]["corr_disp"])
     swapOis.append(oi)
     printinf("File is from a SWAP")
-    
+
         
 # flag points based on FT value
 ftThreshold = np.array([np.abs(oi.visOi.visDataFt).mean() for oi in objOis]).mean()/10.0
@@ -553,6 +553,7 @@ if dargs['save_residuals']:
         visRes = np.ma.masked_array(oi.visOi.visRef - oi.visOi.bestFit, oi.visOi.flag).data
         visResMask = np.ma.masked_array(oi.visOi.visRef - oi.visOi.bestFit, oi.visOi.flag).mask
         np.save(FIGDIR+"/"+name+"_residuals.npy", visRes)
+        np.save(FIGDIR+"/"+name+"_planet.npy", visPla)        
         np.save(FIGDIR+"/"+name+"_mask.npy", visResMask)    
 
 stop()

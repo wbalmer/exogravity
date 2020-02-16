@@ -230,23 +230,29 @@ for oi in objOis+starOis: # mean should not be calculated on swap before phase c
         oi.visOi.u[0, :] = np.mean(u, axis = 0)
         v = np.copy(oi.visOi.v)
         oi.visOi.v = np.zeros([1, oi.visOi.nchannel])        
-        oi.visOi.v[0, :] = np.mean(v, axis = 0)                
+        oi.visOi.v[0, :] = np.mean(v, axis = 0)
         oi.visOi.visData = np.tile(np.mean(oi.visOi.visData*~oi.visOi.flag, axis = 0), [1, 1, 1])#/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
         oi.visOi.visRef = np.tile(np.mean(oi.visOi.visRef*~oi.visOi.flag, axis = 0), [1, 1, 1])#/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
         oi.visOi.uCoord = np.tile(np.mean(oi.visOi.uCoord*~oi.visOi.flag, axis = 0), [1, 1, 1])#/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
         oi.visOi.vCoord = np.tile(np.mean(oi.visOi.vCoord*~oi.visOi.flag, axis = 0), [1, 1, 1])#/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
-        oi.visOi.visCov = np.tile(np.mean(oi.visOi.visCov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
-        oi.visOi.visPcov = np.tile(np.mean(oi.visOi.visPcov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
-        oi.visOi.visRefCov = np.tile(np.mean(oi.visOi.visRefCov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
-        oi.visOi.visRefPcov = np.tile(np.mean(oi.visOi.visRefPcov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
+#        oi.visOi.visCov = np.tile(np.mean(oi.visOi.visCov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
+#        oi.visOi.visPcov = np.tile(np.mean(oi.visOi.visPcov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
+#        oi.visOi.visRefCov = np.tile(np.mean(oi.visOi.visRefCov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
+#        oi.visOi.visRefPcov = np.tile(np.mean(oi.visOi.visRefPcov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
+        for dit, c in itertools.product(range(1, oi.visOi.ndit), range(oi.visOi.nchannel)):
+            oi.visOi.visRefCov[0, c] = oi.visOi.visRefCov[0, c] + oi.visOi.visRefCov[dit, c]
+            oi.visOi.visRefPcov[0, c] = oi.visOi.visRefPcov[0, c] + oi.visOi.visRefPcov[dit, c]
+        oi.visOi.visRefCov = oi.visOi.visRefCov[0:1, :]/oi.visOi.ndit
+        oi.visOi.visRefPcov = oi.visOi.visRefPcov[0:1, :]/oi.visOi.ndit        
         oi.visOi.flag = np.tile(np.any(oi.visOi.flag, axis = 0), [1, 1, 1])
         oi.visOi.flagCov = np.tile(np.any(oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])        
         oi.visOi.ndit = 1
         oi.ndit = 1        
-        oi.visOi.recenterPhase(-oi.sObjX, -oi.sObjY, radec = True)
+        oi.visOi.recenterPhase(-oi.sObjX, -oi.sObjY)        
         oi.computeMean()
         oi.visOi.visErr = np.zeros([1, oi.visOi.nchannel, oi.nwav], 'complex')    
-        oi.visOi.visErr[0, :, :] = np.copy(oi.visOi.visErrMean)        
+        oi.visOi.visErr[0, :, :] = np.copy(oi.visOi.visErrMean)
+
         
 # calculate the very useful w for plotting
 oi = objOis[0]
@@ -510,8 +516,8 @@ for k in range(len(objOis)):
             H_elem[this_r:this_r+m, c*oi.nwav:(c+1)*nwav] = H_elem_c_sp.todense()
 #            Wc_sp = scipy.sparse.csr_matrix(np.diag(oi.visOi.visErr[dit, c, :].real**2+oi.visOi.visErr[dit, c, :].imag**2))
 #            Zc_sp = scipy.sparse.csr_matrix(np.diag(oi.visOi.visErr[dit, c, :].real**2-oi.visOi.visErr[dit, c, :].imag**2))
-            Wc_sp = scipy.sparse.csr_matrix(oi.visOi.visRefCov[dit, c, :, :])
-            Zc_sp = scipy.sparse.csr_matrix(oi.visOi.visRefPcov[dit, c, :, :])
+            Wc_sp = scipy.sparse.csr_matrix(oi.visOi.visRefCov[dit, c].todense())
+            Zc_sp = scipy.sparse.csr_matrix(oi.visOi.visRefPcov[dit, c].todense())
 #            Wc_sp = (Ginv_c_sp.dot(Wc_sp)).dot(cs.adj(Ginv_c_sp))
 #            Zc_sp = (Ginv_c_sp.dot(Zc_sp)).dot(Ginv_c_sp.T)
             W_elem_c = np.dot((H_elem_c_sp.dot(Wc_sp)).todense(), cs.adj(H_elem_c_sp).todense())
@@ -598,8 +604,8 @@ for k in range(len(objOis)):
     oi.visOi.fitDistance = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav])
     for dit, c in itertools.product(range(oi.visOi.ndit), range(oi.visOi.nchannel)):
         oi.visOi.residuals[dit, c, :] = oi.visOi.visPlanet[dit, c, :]-oi.visOi.visPlanetFit[dit, c, :]
-        realErr = np.real(0.5*(np.diag(oi.visOi.visRefCov[dit, c])+np.diag(oi.visOi.visRefPcov[dit, c])))**0.5
-        imagErr = np.real(0.5*(np.diag(oi.visOi.visRefCov[dit, c])-np.diag(oi.visOi.visRefPcov[dit, c])))**0.5   
+        realErr = np.real(0.5*(np.diag(oi.visOi.visRefCov[dit, c].todense())+np.diag(oi.visOi.visRefPcov[dit, c].todense())))**0.5
+        imagErr = np.real(0.5*(np.diag(oi.visOi.visRefCov[dit, c].todense())-np.diag(oi.visOi.visRefPcov[dit, c].todense())))**0.5   
         oi.visOi.fitDistance[dit, c, :] = np.abs(np.real(oi.visOi.residuals[dit, c])/realErr+1j*np.imag(oi.visOi.residuals[dit, c])/imagErr)
 
         
