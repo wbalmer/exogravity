@@ -207,7 +207,9 @@ for oi in objOis:
 #    oi.visOi.visDataFt[:, 0, :] = ftThreshold/100
 #    oi.visOi.visDataFt[:, 1, :] = ftThreshold/100
 #    oi.visOi.visDataFt[:, 2, :] = ftThreshold/100    
-#    oi.visOi.visDataFt[:, 3, :] = ftThreshold/100        
+#    oi.visOi.visDataFt[:, 3, :] = ftThreshold/100
+#    oi.visOi.visDataFt[:, 4, :] = ftThreshold/100
+#    oi.visOi.visDataFt[:, 5, :] = ftThreshold/100            
     a, b = np.where(np.abs(oi.visOi.visDataFt).mean(axis = -1) < ftThreshold)
     (a, b, c) = np.meshgrid(a, b, range(oi.nwav))
     oi.visOi.flagPoints((a, b, c))
@@ -279,8 +281,8 @@ for k in range(len(objOis)):
         soi = starOis[ind]
         visRef = visRef+soi.visOi.visRef.mean(axis = 0)                                                         
     ###===###
-    visRefs[k] = ampRef/len(cfg["planet_ois"][planet_ind]["star_indices"])*np.exp(1j*np.angle(visRef/len(objOis)))#/len(cfg["planet_ois"][planet_ind]["star_indices"])))#/len(starOis))) ###===###
-
+#    visRefs[k] = ampRef/len(cfg["planet_ois"][planet_ind]["star_indices"])*np.exp(1j*np.angle(visRef/len(objOis)))#/len(cfg["planet_ois"][planet_ind]["star_indices"])))#/len(starOis))) ###===###
+    visRefs[k] = ampRef/len(cfg["planet_ois"][planet_ind]["star_indices"])*np.exp(1j*np.angle(visRef/len(cfg["planet_ois"][planet_ind]["star_indices"])))#/len(starOis))) ###===###     
     
 # in DF_SWAP mode, thephase reference of the star cannot be used. We need to extract the phase ref from the SWAP observations
 if PHASEREF_MODE == "DF_SWAP":
