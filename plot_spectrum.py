@@ -49,6 +49,11 @@ for req in REQUIRED_ARGS:
 
 wav, flux, fluxCov, contrast, contrastCov = loadFitsSpectrum(dargs['file'])
 
+w, f, dummy, c, dummy2 = loadFitsSpectrum("/home/mnowak/Documents/exoGravity/spectra/BetaPictorisb_2018-09-22.fits")
+star = np.interp(wav, w, f/c)
+flux = flux*star
+fluxErr = fluxErr*star
+
 if not(dargs['noerr']):
     fluxErr = np.sqrt(np.diag(fluxCov))
     contrastErr = np.sqrt(np.diag(contrastCov))
