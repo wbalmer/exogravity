@@ -89,6 +89,9 @@ CONFIG_FILE = dargs["config_file"]
 if not(os.path.isfile(CONFIG_FILE)):
     raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
 
+if not("save_residuals") in dargs.keys():
+    dargs['save_residuals'] = False
+
 # READ THE CONFIGURATION FILE
 if RUAMEL:
     cfg = ruamel.yaml.load(open(CONFIG_FILE, "r"), Loader=ruamel.yaml.RoundTripLoader)
@@ -130,6 +133,10 @@ if not(FIGDIR is None):
         os.makedirs(FIGDIR)
         printinf("Directory {} was not found and has been created".format(FIGDIR))
 
+# THROW AN ERROR IF save_residuals requested, but not FIGDIR provided
+if dargs['save_residuals'] and (FIGDIR is None):
+    printerr("save_residuals option requested, but not figdir provided.")
+        
 # extract list of useful star ois from the list indicated in the star_indices fields of the config file:
 star_indices = []
 for k in cfg["general"]["reduce"]:
@@ -204,7 +211,7 @@ for filename in PLANET_FILES+STAR_FILES+SWAP_FILES:
 ftThreshold = np.array([np.abs(oi.visOi.visDataFt).mean() for oi in objOis]).mean()/10.0
 printinf("Flag data below FT threshold of {:.2e}".format(ftThreshold))
 for oi in objOis:
-#    oi.visOi.visDataFt[:, 0, :] = ftThreshold/100
+    oi.visOi.visDataFt[:, 0, :] = ftThreshold/100
 #    oi.visOi.visDataFt[:, 1, :] = ftThreshold/100
 #    oi.visOi.visDataFt[:, 2, :] = ftThreshold/100    
 #    oi.visOi.visDataFt[:, 3, :] = ftThreshold/100
@@ -641,8 +648,15 @@ if not(FIGDIR is None):
     plt.ylabel("Contrast")
     plt.savefig(FIGDIR+"/contrast.pdf")
 
-
     
+if dargs['save_residuals']:    
+    for k in range(len(objOis)):
+        oi = objOis[k]
+        name = oi.filename.split('/')[-1].split('.fits')[0]
+        visRes = (oi.visOi.visPlanet - oi.visOi.visPlanetFit)*np.exp(-1j*np.angle(visRefs[k]))
+        np.save(FIGDIR+"/"+name+"_spectrum_residuals.npy", visRes)
+
+        
 stop()
 
 

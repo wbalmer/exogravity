@@ -12,6 +12,7 @@ Args:
   cov (bool, optional): if set, the general covariance will no be displayed on the plot
   noplot: if set, just output the result in the terminal, and do not plot anything
   labels: if set, add label to the individual points
+  notitle: if set, to not add the file name in title
 
 Example:
   python plot_astrometry.py file=full/path/to/config.yaml --noerr 
@@ -51,7 +52,9 @@ if not("noplot" in dargs):
 if not("cov" in dargs):
     dargs["cov"] = False        
 if not("labels" in dargs):
-    dargs["labels"] = False        
+    dargs["labels"] = False
+if not("notitle" in dargs):
+    dargs["notile"] = False            
 
 # arg should be the path to the spectrum
 REQUIRED_ARGS = ["file"]
@@ -130,6 +133,9 @@ if dargs['labels']:
 #ax.text(ra_best+val[0]**0.5, dec_best+val[1]**0.5, "RA={:.2f}+-{:.3f}\nDEC={:.2f}+-{:.3f}\nCOV={:.2f}".format(ra_best, ra_std**0.5, dec_best, dec_std**0.5, cov[0, 1]/np.sqrt(cov[0, 0]*cov[1, 1])))
 ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
 ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
+
+if not(dargs["notitle"]):
+    plt.title(dargs['file'])
 
 ax.legend(["Solutions", "Mean solution", "1$\sigma$ dispersion", "3$\sigma$ dispersion", "1$\sigma$ dispersion on mean", "3$\sigma$ dispersion on mean"])
 plt.axis("equal")
