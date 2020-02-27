@@ -27,6 +27,7 @@ Args:
   corr_disp (str, optional): can be "sylvestre" or "drs", or possibly "none" depending on which formula to use for the dispersion correction
   swap_target (str, optional): the name of the target for the swap observations if off-axis mode
   calib_strategy (str, optional): "all" to use all star files to calibrate visibility reference. "Nearest" to use the two nearest. On-axis only
+  taregt (str, optional): if you want to restrict to a particular target name, you can specify one
 
 Example:
   Minimal
@@ -138,6 +139,9 @@ if not("swap_target" in dargs.keys()):
     printwar("SWAP target name not given. Assuming the observation to be on-axis (no swap)")
     dargs["swap_target"] = "%%"
 
+if not("target" in dargs.keys()):
+    dargs["target"] = None
+
 if not("calib_strategy" in dargs.keys()):
     printwar("calib strategy not given. Using default 'nearest'")
     dargs["calib_strategy"] = "nearest"    
@@ -165,6 +169,10 @@ for k in range(len(datafiles)):
     oi = gravity.GravityOiFits(filename)
     d = (oi.sObjX**2+oi.sObjY**2 )**0.5
     msg = "Target is {}; Fiber distance is {:.2f} mas. ".format(oi.target, d)
+    if not(dargs['target'] is None):
+        if dargs['target'] != oi.target:
+            printinf("Target does not match the provided target name. Skipping this file.")
+            continue
     if d < 10:
         printinf(msg+"Assuming file to be on star.")
         starOis.append(oi)
