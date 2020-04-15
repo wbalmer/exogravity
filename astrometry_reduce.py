@@ -89,6 +89,7 @@ N_RA = cfg["general"]["n_ra"]
 N_DEC = cfg["general"]["n_dec"]
 RA_LIM = cfg["general"]["ralim"]
 DEC_LIM = cfg["general"]["declim"]
+EXTENSION = cfg["general"]["extension"]
 
 # OVERWRITE SOME OF THE CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
 if "gofast" in dargs.keys():
@@ -96,7 +97,7 @@ if "gofast" in dargs.keys():
 if "noinv" in dargs.keys():
     NO_INV = dargs["noinv"] # bypass value from config file
 if "figdir" in dargs.keys():
-    FIGDIR = dargs["figdir"] # bypass value from config file        
+    FIGDIR = dargs["figdir"] # bypass value from config file
 
 # LOAD GRAVITY PLOT is savefig requested
 if not(FIGDIR is None):
@@ -136,22 +137,22 @@ swapOis = [] # first position of the swap (only in DF_SWAP mode)
 # LOAD DATA
 for filename in PLANET_FILES:
     printinf("Loading file "+filename)
-    oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = 10, corrDisp = cfg["general"]["corr_disp"])
+    oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = EXTENSION, corrDisp = cfg["general"]["corr_disp"])
     objOis.append(oi)
     printinf("File is on planet. FT coherent flux: {:.2e}".format(np.mean(np.abs(oi.visOi.visDataFt))))        
 
 for filename in STAR_FILES:
     printinf("Loading file "+filename)
     if (PHASEREF_MODE == "DF_SWAP"):
-        oi = gravity.GravityDualfieldAstrored(filename, corrMet = "drs", extension = 10, corrDisp = "drs")
+        oi = gravity.GravityDualfieldAstrored(filename, corrMet = "drs", extension = EXTENSION, corrDisp = "drs")
     else:
-        oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = 10, corrDisp = cfg["general"]["corr_disp"])
+        oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = EXTENSION, corrDisp = cfg["general"]["corr_disp"])
     starOis.append(oi)
     printinf("File is on star")
                                               
 for filename in SWAP_FILES:
     printinf("Loading file "+filename)
-    oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = 10, corrDisp = cfg["general"]["corr_disp"])
+    oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = EXTENSION, corrDisp = cfg["general"]["corr_disp"])
     swapOis.append(oi)
     printinf("File is from a SWAP")
 
@@ -195,8 +196,8 @@ for oi in objOis+starOis: # mean should not be calculated on swap before phase c
         for dit, c in itertools.product(range(1, oi.visOi.ndit), range(oi.visOi.nchannel)):
             oi.visOi.visRefCov[0, c] = oi.visOi.visRefCov[0, c] + oi.visOi.visRefCov[dit, c]
             oi.visOi.visRefPcov[0, c] = oi.visOi.visRefPcov[0, c] + oi.visOi.visRefPcov[dit, c]
-        oi.visOi.visRefCov = oi.visOi.visRefCov[0:1, :]/oi.visOi.ndit
-        oi.visOi.visRefPcov = oi.visOi.visRefPcov[0:1, :]/oi.visOi.ndit        
+        oi.visOi.visRefCov = oi.visOi.visRefCov[0:1, :]/oi.visOi.ndit**2
+        oi.visOi.visRefPcov = oi.visOi.visRefPcov[0:1, :]/oi.visOi.ndit**2       
         oi.visOi.flag = np.tile(np.any(oi.visOi.flag, axis = 0), [1, 1, 1])
         oi.visOi.flagCov = np.tile(np.any(oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])        
         oi.visOi.ndit = 1

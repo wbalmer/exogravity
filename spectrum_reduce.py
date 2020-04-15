@@ -113,6 +113,7 @@ else:
     SWAP_FILES = [DATA_DIR+cfg["swap_ois"][k]["filename"] for k in cfg["swap_ois"].keys()]
 STAR_ORDER = cfg["general"]["star_order"]
 STAR_DIAMETER = cfg["general"]["star_diameter"]
+EXTENSION = cfg["general"]["extension"]
 
 # OVERWRITE SOME OF THE CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
 if "gofast" in dargs.keys():
@@ -191,11 +192,11 @@ t = time.time()
 for filename in PLANET_FILES+STAR_FILES+SWAP_FILES:
     printinf("Loading file "+filename)
     if (PHASEREF_MODE == "DF_SWAP") and (filename in STAR_FILES):
-        oi = gravity.GravityDualfieldAstrored(filename, corrMet = "drs", extension = 10, corrDisp = "drs")
+        oi = gravity.GravityDualfieldAstrored(filename, corrMet = "drs", extension = EXTENSION, corrDisp = "drs")
     elif filename in PLANET_FILES:
-        oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = 10, corrDisp = cfg["general"]["corr_disp"], reflag = REFLAG)
+        oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = EXTENSION, corrDisp = cfg["general"]["corr_disp"], reflag = REFLAG)
     else:
-        oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = 10, corrDisp = cfg["general"]["corr_disp"])
+        oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = EXTENSION, corrDisp = cfg["general"]["corr_disp"])
     if filename in PLANET_FILES:
         objOis.append(oi)
         printinf("File is on planet. FT coherent flux: {:.2e}".format(np.mean(np.abs(oi.visOi.visDataFt))))        
@@ -211,7 +212,7 @@ for filename in PLANET_FILES+STAR_FILES+SWAP_FILES:
 ftThreshold = np.array([np.abs(oi.visOi.visDataFt).mean() for oi in objOis]).mean()/10.0
 printinf("Flag data below FT threshold of {:.2e}".format(ftThreshold))
 for oi in objOis:
-    oi.visOi.visDataFt[:, 0, :] = ftThreshold/100
+#    oi.visOi.visDataFt[:, 0, :] = ftThreshold/100
 #    oi.visOi.visDataFt[:, 1, :] = ftThreshold/100
 #    oi.visOi.visDataFt[:, 2, :] = ftThreshold/100    
 #    oi.visOi.visDataFt[:, 3, :] = ftThreshold/100
@@ -251,15 +252,15 @@ for oi in objOis+starOis: # mean should not be calculated on swap before phase c
         for dit, c in itertools.product(range(1, oi.visOi.ndit), range(oi.visOi.nchannel)):
             oi.visOi.visRefCov[0, c] = oi.visOi.visRefCov[0, c] + oi.visOi.visRefCov[dit, c]
             oi.visOi.visRefPcov[0, c] = oi.visOi.visRefPcov[0, c] + oi.visOi.visRefPcov[dit, c]
-        oi.visOi.visRefCov = oi.visOi.visRefCov[0:1, :]/oi.visOi.ndit
-        oi.visOi.visRefPcov = oi.visOi.visRefPcov[0:1, :]/oi.visOi.ndit        
+        oi.visOi.visRefCov = oi.visOi.visRefCov[0:1, :]/oi.visOi.ndit**2
+        oi.visOi.visRefPcov = oi.visOi.visRefPcov[0:1, :]/oi.visOi.ndit**2       
         oi.visOi.flag = np.tile(np.any(oi.visOi.flag, axis = 0), [1, 1, 1])
         oi.visOi.flagCov = np.tile(np.any(oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])        
         oi.visOi.ndit = 1
         oi.ndit = 1        
         oi.visOi.recenterPhase(-oi.sObjX, -oi.sObjY)        
         oi.computeMean()
-        oi.visOi.visErr = np.zeros([1, oi.visOi.nchannel, oi.nwav], 'complex')    
+        oi.visOi.visErr = np.zeros([1, oi.visOi.nchannel, oi.nwav], 'complex64')    
         oi.visOi.visErr[0, :, :] = np.copy(oi.visOi.visErrMean)
 
         
@@ -420,6 +421,7 @@ for k in range(len(objOis)):
             m = int(np.sum(d))
             oi.visOi.m[dit, c] = m
 
+
 # TODO: is it useful?
 """
 # if injection data available, load them
@@ -472,7 +474,7 @@ for k in range(len(objOis)):
 #            if (inj_coeffs is None):
             G = np.diag(np.abs(visRefs[k][c, :])/resolved_star_models[k][dit, c, :]*chromatic_coupling[k, :])
 #            else:
-#                G = np.diag((inj_coeffs[k][dit, c, 0]*np.abs(ampRefs[k][c, :])+inj_coeffs[k][dit, c, 1]*(oi.wav - np.min(oi.wav))*1e6*np.abs(ampRefs[k][c, :]))/resolved_star_models[k][dit, c, :]*chromatic_coupling[k, :])
+#                G = np.diag((inj_coeffs[k][dit, c, 0]*np.abs(ampRefs[k][c, :])+inj_coeffs[k][dit, c, 1]*(oi.wav - np.min(oi.wav))*1e6*np.abs(ampRefs[k][c, :]))/re#solved_star_models[k][dit, c, :]*chromatic_coupling[k, :])
             H[r:(r+m), :] = np.dot(oi.visOi.h_matrices[dit, c, 0:m, :], G)
             # filter bad datapoints by setting the corresponding columns of H to 0
             indx = np.where(oi.visOi.flag[dit, c, :])
@@ -481,7 +483,7 @@ for k in range(len(objOis)):
             Y[r:r+m] = np.dot(oi.visOi.h_matrices[dit, c, 0:m, :], oi.visOi.visRef[dit, c, :])
             r = r+m
 
-            
+
 Y2 = cs.conj_extended(Y)
 H2 = cs.conj_extended(H)
 
@@ -494,6 +496,7 @@ pcovY2W2invH2 = np.zeros([2*mtot, nwav], 'complex64')
 r = 0
 nwav = objOis[0].nwav
 nb = objOis[0].visOi.nchannel
+ndittot = np.sum(np.array([oi.visOi.ndit for oi in objOis]))
 #Ginv = np.zeros([nb*nwav, nb*nwav], 'complex64')    
 
 printinf("Starting Calculation of W2invH2")
@@ -502,7 +505,7 @@ for k in range(len(objOis)):
     oi = objOis[k]
     nchannel = oi.visOi.nchannel
     for dit in range(oi.visOi.ndit):
-        printinf("Calculating W2invH2 ({:d}/{:d})".format(counter, np.sum(np.array([oi.visOi.ndit for oi in objOis]))))
+        printinf("Calculating W2invH2 ({:d}/{:d})".format(counter, ndittot))
         counter = counter+1
         this_dit_mtot = 0
         for c in range(nchannel):        
@@ -552,7 +555,7 @@ for k in range(len(objOis)):
 #        Z_elem = np.dot(np.dot(H_elem, Z_dit), H_elem.T)
 #        W2_elem = cs.extended_covariance(W_elem, Z_elem)                         
 #        W2_elem_sp = scipy.sparse.csc_matrix(W2_elem)
-#        W2invA2 = np.zeros([2*oi.nwav, 2*STAR_ORDER+1], 'complex')
+#        W2invA2 = np.zeros([2*oi.nwav, 2*STAR_ORDER+1], 'complex64')
 #        ZZ, _ = lapack.dpotrf(W2)
 #        T, info = lapack.dpotri(ZZ)
 #        W2_elem_inv = np.triu(T) + np.triu(T, k=1).T
@@ -593,8 +596,8 @@ saveFitsSpectrum(OUTPUT_DIR+"/"+SPECTRUM_FILENAME, wav, C, Cerr, C, Cerr)
 for k in range(len(objOis)):
     oi = objOis[k]
     # we'll store the recontructed planet visibilities and the fit directly in the oi object
-    oi.visOi.visPlanet = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex")
-    oi.visOi.visPlanetFit = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex")    
+    oi.visOi.visPlanet = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex64")
+    oi.visOi.visPlanetFit = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex64")    
     for dit, c in itertools.product(range(oi.visOi.ndit), range(oi.visOi.nchannel)):
         oi.visOi.visPlanet[dit, c, :] = np.dot(oi.visOi.p_matrices[dit, c, :, :], oi.visOi.visRef[dit, c, :])
 #        oi.visOi.visPlanet[dit, c, -STAR_ORDER-1] = 0 # this projects orthogonally to the speckle noise
@@ -609,7 +612,7 @@ for k in range(len(objOis)):
 # now we are going to calculate the residuals, and the distances in units of error bars
 for k in range(len(objOis)):
     oi = objOis[k]
-    oi.visOi.residuals = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex")
+    oi.visOi.residuals = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex64")
     oi.visOi.fitDistance = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav])
     for dit, c in itertools.product(range(oi.visOi.ndit), range(oi.visOi.nchannel)):
         oi.visOi.residuals[dit, c, :] = oi.visOi.visPlanet[dit, c, :]-oi.visOi.visPlanetFit[dit, c, :]
@@ -717,12 +720,12 @@ for k in range(len(objOis)):
     pbar.update()
     oi = objOis[k]
     coeffs = np.zeros([oi.visOi.ndit, 6, 2])    
-    Y = np.zeros([oi.visOi.nchannel, oi.nwav], 'complex')    
-    Yfit = np.zeros([oi.visOi.nchannel, oi.nwav], 'complex')
+    Y = np.zeros([oi.visOi.nchannel, oi.nwav], 'complex64')    
+    Yfit = np.zeros([oi.visOi.nchannel, oi.nwav], 'complex64')
     for dit in range(oi.visOi.ndit):
         for c in range(oi.visOi.nchannel):
             m = int(oi.visOi.m[dit, c])                                    
-            X = np.zeros([m, 2], 'complex')
+            X = np.zeros([m, 2], 'complex64')
             H = oi.visOi.h_matrices[dit, c, 0:m, :]
             U = np.dot(H, oi.visOi.visRef[dit, c, :])
             U2 = gravity.conj_extended(U)            
@@ -744,7 +747,7 @@ for k in range(len(objOis)):
             K = np.real(np.dot(np.dot(gravity.adj(X2), W2inv), X2))
             A = np.dot(np.real(np.dot(np.dot(gravity.adj(U2), W2inv), X2)), np.linalg.pinv(K))
             coeffs[dit, c, :] = np.real(A)
-            Xp = np.zeros([oi.nwav, 2], 'complex')
+            Xp = np.zeros([oi.nwav, 2], 'complex64')
             Xp[:, 0] = np.dot(G, C)
             Xp[:, 1] = np.dot(G, np.dot(Lambda, C))
             Yfit[c, :] = Yfit[c, :] + np.dot(A, Xp.T)

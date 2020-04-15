@@ -25,6 +25,7 @@ Args:
   star_diameter (float, optional): the diameter of the central star (in mas, to scale the visibility amplitude). Default is 0. 
   corr_met (str, optional): can be "sylvestre" or "drs", or possibly "none" depending on which formula to use for the metrology correction
   corr_disp (str, optional): can be "sylvestre" or "drs", or possibly "none" depending on which formula to use for the dispersion correction
+  extension (int, optional): the FITS extension to use, which depends on the polarization in the data. Deafult to 10 (combined).
   swap_target (str, optional): the name of the target for the swap observations if off-axis mode
   calib_strategy (str, optional): "all" to use all star files to calibrate visibility reference. "Nearest" to use the two nearest. On-axis only
   taregt (str, optional): if you want to restrict to a particular target name, you can specify one
@@ -123,6 +124,9 @@ if not("reflag" in dargs.keys()):
 if not("contrast_file" in dargs.keys()):
     printwar("Contrast file not given. Constant contrast will be used")
     dargs['contrast_file'] = None
+if not("extension" in dargs.keys()):
+    printwar("extension not given. Using basic value '10'.")
+    dargs['extension'] = 10    
 
 if not("star_diameter" in dargs.keys()):
     printwar("star_diameter not provided in args. Defaulting to star_diameter=0 (point source)")
@@ -206,7 +210,8 @@ else:
 general = {"datadir": dargs["datadir"],
            "phaseref_mode": phaseref_mode,
            "corr_met": dargs['corr_met'],
-           "corr_disp": dargs['corr_disp'],                      
+           "corr_disp": dargs['corr_disp'],
+           "extension": int(dargs["extension"]),           
            "gofast": dargs['gofast'],
            "noinv": dargs['noinv'],
            "reflag": dargs['reflag'],           
