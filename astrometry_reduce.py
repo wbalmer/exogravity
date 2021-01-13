@@ -161,9 +161,9 @@ for filename in SWAP_FILES:
 ftThreshold = np.array([np.abs(oi.visOi.visDataFt).mean() for oi in objOis]).mean()/10.0
 printinf("Flag data below FT threshold of {:.2e}".format(ftThreshold))
 for oi in objOis:
-#    oi.visOi.visDataFt[:, 0, :] = ftThreshold/100
-#    oi.visOi.visDataFt[:, 1, :] = ftThreshold/100
-#    oi.visOi.visDataFt[:, 2, :] = ftThreshold/100
+    oi.visOi.visDataFt[:, 0, :] = ftThreshold/100
+    oi.visOi.visDataFt[:, 1, :] = ftThreshold/100
+    oi.visOi.visDataFt[:, 2, :] = ftThreshold/100
 #    oi.visOi.visDataFt[:, 3, :] = ftThreshold/100
 #    oi.visOi.visDataFt[:, 4, :] = ftThreshold/100
 #    oi.visOi.visDataFt[:, 5, :] = ftThreshold/100
@@ -339,6 +339,8 @@ for k in range(len(objOis)):
             # cov and pcov
             W = oi.visOi.visRefCov[dit, c].todense() #np.diag((np.real(oi.visOi.visErr[dit, c, :])**2+np.imag(oi.visOi.visErr[dit, c, :])**2)) 
             Z = oi.visOi.visRefPcov[dit, c].todense() #np.diag((np.real(oi.visOi.visErr[dit, c, :])**2-np.imag(oi.visOi.visErr[dit, c, :])**2))
+ #           W = np.diag((np.real(oi.visOi.visErr[dit, c, :])**2+np.imag(oi.visOi.visErr[dit, c, :])**2)) 
+ #           Z = np.diag((np.real(oi.visOi.visErr[dit, c, :])**2-np.imag(oi.visOi.visErr[dit, c, :])**2))            
             W2 = cs.extended_covariance(W, Z).real
             if NO_INV:
                 W2sp = scipy.sparse.csr_matrix(W2)
@@ -372,7 +374,7 @@ for k in range(len(objOis)):
                 left = np.real( np.dot(cs.adj(cs.conj_extended(visRefNoBad)), W2invA2) )
                 right = np.real( np.dot(cs.adj(A2), W2invA2) )
                 dzeta = np.transpose(np.dot(left, np.linalg.pinv(right)))
-                if dzeta[-1] < 0:
+                if (dzeta[-1] < 0) or (j==0):
                     dzeta[-1] = 0
                     A[:, -1] = 0
                     A2 = cs.conj_extended(A)
@@ -383,6 +385,7 @@ for k in range(len(objOis)):
                     left = np.real( np.dot(cs.adj(cs.conj_extended(visRefNoBad)), W2invA2) )
                     right = np.real( np.dot(cs.adj(A2), W2invA2) )
                     dzeta = np.transpose(np.dot(left, np.linalg.pinv(right)))
+                    dzeta[-1] = 0
                 # calculate the corresponding chi2
                 vec = cs.conj_extended(visRefNoBad) - np.dot(A2, dzeta)
                 if NO_INV:
@@ -390,6 +393,14 @@ for k in range(len(objOis)):
                     opdChi2Map[dit, c, j] = np.real(np.dot(cs.adj(vec), rightVec))
                 else:
                     opdChi2Map[dit, c, j] = np.real(np.dot(np.dot(cs.adj(vec), W2inv), vec))
+                """
+                print("1.00 -> "+str(np.real(np.dot(np.dot(cs.adj(vec), W2inv), vec))))
+                vec = cs.conj_extended(visRefNoBad) - np.dot(A2, 0.99*dzeta)
+                print("0.99 -> "+str(np.real(np.dot(np.dot(cs.adj(vec), W2inv), vec))))                
+                vec = cs.conj_extended(visRefNoBad) - np.dot(A2, 1.01*dzeta)
+                print("1.01 -> "+str(np.real(np.dot(np.dot(cs.adj(vec), W2inv), vec))))                
+                stop()
+                """
     opdChi2Maps.append(opdChi2Map)
 
     
@@ -823,24 +834,92 @@ for k in range(1, len(starOis)):
 
 
 ###
+#wav, flux, fluxCov, contrast, contrastCov = loadFitsSpectrum("/home/mnowak/Documents/exoGravity/spectra/BetaPictorisc_2020-03-08_ADI.fits")
+wav, flux, fluxCov, contrast, contrastCov = loadFitsSpectrum("/home/mnowak/Documents/exoGravity/spectra/BetaPictorisb_2018-09-22.fits")
+contrast = np.interp(oi.wav*1e6, wav, contrast)
 oi = objOis[0]
 plt.figure()
 for c in range(oi.visOi.nchannel):
     freq = oi.visOi.freq[:, c, :].mean(axis = 0)/1e6
-    plt.semilogy(freq, np.abs(oi.dit/soi.dit*soi.visOi.visRef[:, c, :]).mean(axis = 0), 'C'+str(c))    
-    plt.semilogy(freq, np.abs(oi.dit*oi.visOi.visRef[:, c, :]).mean(axis = 0), '-.C'+str(c))
-    plt.semilogy(freq, np.abs(oi.dit*oi.visOi.visRef[:, c, :].mean(axis = 0) - oi.dit*oi.visOi.bestFitStar[:, c, :].mean(axis = 0)), '--C'+str(c))
-    plt.semilogy(freq, np.abs(oi.dit*oi.visOi.visRef[:, c, :]).mean(axis = 0)**0.5/len(objOis)**0.5, 'k--')
+    amp = oi.dit/soi.dit*np.abs(soi.visOi.visRef[:, c, :]).mean()
+    plt.semilogy(freq, np.abs(oi.dit/soi.dit*soi.visOi.visRef[:, c, :]).mean(axis = 0)/amp, 'C'+str(c))    
+    plt.semilogy(freq, np.abs(oi.dit*oi.visOi.visRef[:, c, :]).mean(axis = 0)/amp, '-.C'+str(c))
+#    plt.semilogy(freq, (np.abs(oi.dit*oi.visOi.visRef[:, c, :].mean(axis = 0) - oi.dit*oi.visOi.bestFitStar[:, c, :].mean(axis = 0)))/amp, '--C'+str(c))
+    plt.semilogy(freq, np.abs(oi.dit/soi.dit*soi.visOi.visRef[:, c, :]).mean(axis = 0)/amp*contrast, 'C'+str(c))    
+    plt.semilogy(freq, np.abs(oi.dit*oi.visOi.visRef[:, c, :]).mean(axis = 0)**0.5/(len(objOis))**0.5/amp, 'k--')
 
 plt.legend(["On-star", "On-planet stellar residual", "On-planet planet flux", "Shot noise on stellar residual"])
     
 plt.xlabel("Frequency (Mrad/s)")
-plt.ylabel("Flux (ADU)")
+plt.ylabel("Contrast")
 
 plt.grid(which = "both")
+plt.xlim(15, 65)
+plt.ylim(1e-6, 2)
 ###
 
     
 
 for k in cfg['planet_ois']:
     print(cfg['planet_ois'][k]['filename'])
+
+chiMin = 0
+
+superChi2Map = np.zeros([len(raValues), len(decValues)])
+for k in range(len(objOis)):
+    superChi2Map = superChi2Map + chi2Maps[k].sum(axis = 0)
+    chiMin = chiMin+opdChi2Maps[k][:, :, 0].sum()
+    
+#superChi2Map[:, 0] = np.float('nan')
+#superChi2Map[:, -1] = np.float('nan')
+#superChi2Map[0, :] = np.float('nan')
+#superChi2Map[-1, :] = np.float('nan')
+#superChi2Map[-2, :] = np.float('nan')
+
+#zmap = (233*12*5-(6*12*5+6+2))*
+zmap = (chiMin-superChi2Map)/2
+xfib = objOis[0].sObjX
+yfib = objOis[0].sObjY
+
+import matplotlib
+axcol = 'lightgray'
+matplotlib.rc('axes',edgecolor=axcol)
+fig = plt.figure()
+ax = fig.add_subplot(111)
+p = ax.imshow(zmap.T, origin = 'lower', extent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)], aspect = 'equal', vmin = 0)
+cbar = fig.colorbar(p)
+cbar.set_label("Periodogram power")
+ax.spines['left'].set_position('center')
+ax.spines['bottom'].set_position('center')
+ax.spines['right'].set_color('none')
+ax.spines['top'].set_color('none')    
+ax.yaxis.label.set_color(axcol)
+ax.xaxis.label.set_color(axcol)
+ax.tick_params(axis='x', colors=axcol)
+ax.tick_params(axis='y', colors=axcol)
+r = 30
+plt.xlim([xfib-r-1, xfib+r+1])
+plt.ylim([yfib-r-1, yfib+r+1])
+
+theta = np.linspace(0,2*np.pi,100);      # A vector of 100 angles from 0 to 2*pi
+xCircle = xfib+r*1.0*np.cos(theta);              # x coordinates for circle
+yCircle = yfib+r*1.0*np.sin(theta);              # y coordinates for circle
+s = 1
+xSquare = [xfib+r+s, xfib+r+s, xfib-r-s, xfib-r-s, xfib+r+s, xfib+r+s];         # x coordinates for square
+ySquare = [yfib, yfib-r-s, yfib-r-s, yfib+r+s, yfib+r+s, yfib];         # y coordinates for square
+hp = plt.fill(list(xCircle)+xSquare, list(yCircle)+ySquare, 'w');
+
+ax.set_xlabel('$\Delta\mathrm{RA}$ (mas)')
+ax.set_ylabel('$\Delta\mathrm{DEC}$ (mas)')
+ax.xaxis.set_label_coords(0.75, 0.55)
+ax.yaxis.set_label_coords(0.55, 0.75)
+
+plt.plot(xCircle, yCircle, '--', color='gray')
+#plt.plot(xfib+r*np.cos(theta)/2, yfib+r*np.sin(theta)/2, '--', color=axcol, alpha=0.5)
+
+plt.text(xfib+r/2**0.5+1, yfib-r/2**0.5-1, "Fiber Field-of-view", ha='center', va='center', rotation = 45,color = 'gray')
+#plt.text(xfib+r/2**0.5/2+1, yfib-r/2**0.5/2-1, "Half-injection", ha='center', va='center', rotation = 45, color = axcol)
+#lt.xlabel("U coordinate ($\\times{}10^7 \mathrm{ rad}^{-1}$)")
+#lt.ylabel("V coordinate ($\\times{}10^7 \mathrm{ rad}^{-1}$)")
+
+# Clip

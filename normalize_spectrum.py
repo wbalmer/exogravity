@@ -93,7 +93,7 @@ flux_model=np.convolve(flux_model,G,'same')/np.convolve(np.ones(len(data)),G,'sa
 
 # ESO K mag calib
 eso_filt_interp = np.interp(wav_model, eso_wav, eso_filt)
-fluxTot = np.trapz(eso_filt_interp*flux_model, wav_model)/0.33
+fluxTot = np.trapz(eso_filt_interp*flux_model, wav_model)/0.36
 eso_zp = 4.12e-10
 eso_flux = eso_zp*10**(-float(dargs['mag_k'])/2.5)
 
