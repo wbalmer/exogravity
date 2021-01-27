@@ -24,17 +24,20 @@ Version:
   xx.xx
 """
 
-# IMPORTS
+# BASIC IMPORTS
 import numpy as np
 import scipy.sparse, scipy.sparse.linalg
 from scipy.linalg import lapack
 import astropy.io.fits as fits
+# cleanGravity IMPORTS
 import cleanGravity as gravity
 from cleanGravity import complexstats as cs
 from cleanGravity.utils import loadFitsSpectrum, saveFitsSpectrum
-from utils import *
+from utils import * # utils from this exooGravity package
+# other random stuffs
 import glob
 import itertools
+# ruamel to read config yml file
 try:
     import ruamel.yaml
     RUAMEL = True
@@ -42,7 +45,6 @@ except: # if ruamel not available, switch back to pyyaml, which does not handle 
     import yaml
     RUAMEL = False
 import sys, os
-
 
 # load aguments into a dictionnary
 dargs = args_to_dict(sys.argv)
@@ -56,12 +58,10 @@ REQUIRED_ARGS = ["config_file"]
 for req in REQUIRED_ARGS:
     if not(req in dargs.keys()):
         printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
-        stop()
 
 CONFIG_FILE = dargs["config_file"]
 if not(os.path.isfile(CONFIG_FILE)):
     raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
-
 if not("save_residuals") in dargs.keys():
     dargs['save_residuals'] = False
     
@@ -90,6 +90,7 @@ N_DEC = cfg["general"]["n_dec"]
 RA_LIM = cfg["general"]["ralim"]
 DEC_LIM = cfg["general"]["declim"]
 EXTENSION = cfg["general"]["extension"]
+REDUCTION = cfg["general"]["reduction"]
 
 # OVERWRITE SOME OF THE CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
 if "gofast" in dargs.keys():
@@ -108,9 +109,9 @@ if not(FIGDIR is None):
         os.makedirs(FIGDIR)
         printinf("Directory {} was not found and has been created".format(FIGDIR))
 
-# THROW AN ERROR IF save_residuals requested, but not FIGDIR provided
+# THROW AN ERROR IF save_residuals requested, but no FIGDIR provided
 if dargs['save_residuals'] and (FIGDIR is None):
-    printerr("save_residuals option requested, but not figdir provided.")
+    printerr("save_residuals option requested, but no figdir provided.")
         
 # extract list of useful star ois from the list indicated in the star_indices fields of the config file:
 star_indices = []
@@ -128,7 +129,7 @@ elif CONTRAST_FILE.split('.')[-1].lower() in ["fit", "fits"]:
 else:
     printerr("The given contrast file ({}) should have a fits extension".format(fits))
 
-# two lists to contain the planet and star OIs
+# lists to contain the planet, star, and potentially swap OIs
 starOis = [] # will contain OIs on the central star
 objOis = [] # contains the OIs on the planet itself
 swapOis = [] # first position of the swap (only in DF_SWAP mode)
@@ -137,41 +138,63 @@ swapOis = [] # first position of the swap (only in DF_SWAP mode)
 # LOAD DATA
 for filename in PLANET_FILES:
     printinf("Loading file "+filename)
-    oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = EXTENSION, corrDisp = cfg["general"]["corr_disp"])
+    if REDUCTION == "astrored":
+        oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = EXTENSION, corrDisp = cfg["general"]["corr_disp"])
+        printinf("File is on planet. FT coherent flux: {:.2e}".format(np.mean(np.abs(oi.visOi.visDataFt))))                
+    elif REDUCTION == "dualscivis":
+        oi = gravity.GravityDualfieldScivis(filename, extension = EXTENSION)
+        printinf("File is on planet")
+    else:
+        printerr("Unknonwn reduction type '{}'.".format(REDUCTION))        
     objOis.append(oi)
-    printinf("File is on planet. FT coherent flux: {:.2e}".format(np.mean(np.abs(oi.visOi.visDataFt))))        
 
 for filename in STAR_FILES:
     printinf("Loading file "+filename)
     if (PHASEREF_MODE == "DF_SWAP"):
-        oi = gravity.GravityDualfieldAstrored(filename, corrMet = "drs", extension = EXTENSION, corrDisp = "drs")
+        if REDUCTION == "astrored":        
+            oi = gravity.GravityDualfieldAstrored(filename, corrMet = "drs", extension = EXTENSION, corrDisp = "drs")
+        elif REDUCTION == "dualscivis":
+            oi = gravity.GravityDualfieldScivis(filename, extension = EXTENSION)
+        else:
+            printerr("Unknonwn reduction type '{}'.".format(REDUCTION))            
     else:
-        oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = EXTENSION, corrDisp = cfg["general"]["corr_disp"])
+        if REDUCTION == "astrored":                
+            oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = EXTENSION, corrDisp = cfg["general"]["corr_disp"])
+        elif REDUCTION == "dualscivis":
+            oi = gravity.GravityDualfieldScivis(filename, extension = EXTENSION)
+        else:
+            printerr("Unknonwn reduction type '{}'.".format(REDUCTION))                        
     starOis.append(oi)
     printinf("File is on star")
                                               
 for filename in SWAP_FILES:
     printinf("Loading file "+filename)
-    oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = EXTENSION, corrDisp = cfg["general"]["corr_disp"])
+    if REDUCTION == "astrored":                
+        oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = EXTENSION, corrDisp = cfg["general"]["corr_disp"])
+    elif REDUCTION == "dualscivis":    
+        oi = gravity.GravityDualfieldScivis(filename, extension = EXTENSION)
+    else:
+        printerr("Unknonwn reduction type '{}'.".format(REDUCTION))                                                                        
     swapOis.append(oi)
     printinf("File is from a SWAP")
+    
+        
+if REDUCTION == "astrored":
+    # flag points based on FT value
+    ftThreshold = np.array([np.abs(oi.visOi.visDataFt).mean() for oi in objOis]).mean()/10.0
+    printinf("Flag data below FT threshold of {:.2e}".format(ftThreshold))
+    for oi in objOis:
+    #    oi.visOi.visDataFt[:, 0, :] = ftThreshold/100
+    #    oi.visOi.visDataFt[:, 1, :] = ftThreshold/100
+    #    oi.visOi.visDataFt[:, 2, :] = ftThreshold/100
+    #    oi.visOi.visDataFt[:, 3, :] = ftThreshold/100
+    #    oi.visOi.visDataFt[:, 4, :] = ftThreshold/100
+    #    oi.visOi.visDataFt[:, 5, :] = ftThreshold/100
+        a, b = np.where(np.abs(oi.visOi.visDataFt).mean(axis = -1) < ftThreshold)
+        (a, b, c) = np.meshgrid(a, b, range(oi.nwav))
+        oi.visOi.flagPoints((a, b, c))
 
         
-# flag points based on FT value
-ftThreshold = np.array([np.abs(oi.visOi.visDataFt).mean() for oi in objOis]).mean()/10.0
-printinf("Flag data below FT threshold of {:.2e}".format(ftThreshold))
-for oi in objOis:
-    oi.visOi.visDataFt[:, 0, :] = ftThreshold/100
-    oi.visOi.visDataFt[:, 1, :] = ftThreshold/100
-    oi.visOi.visDataFt[:, 2, :] = ftThreshold/100
-#    oi.visOi.visDataFt[:, 3, :] = ftThreshold/100
-#    oi.visOi.visDataFt[:, 4, :] = ftThreshold/100
-#    oi.visOi.visDataFt[:, 5, :] = ftThreshold/100
-    a, b = np.where(np.abs(oi.visOi.visDataFt).mean(axis = -1) < ftThreshold)
-    (a, b, c) = np.meshgrid(a, b, range(oi.nwav))
-    oi.visOi.flagPoints((a, b, c))
-
-    
 # replace data by the mean over all DITs if go_fast has been requested in the config file
 printinf("gofast flag is set. Averaging over DITs")
 for oi in objOis+starOis: # mean should not be calculated on swap before phase correction
@@ -207,87 +230,32 @@ for oi in objOis+starOis: # mean should not be calculated on swap before phase c
         oi.visOi.visErr = np.zeros([1, oi.visOi.nchannel, oi.nwav], 'complex')    
         oi.visOi.visErr[0, :, :] = np.copy(oi.visOi.visErrMean)
 
-
 # calculate the very useful w for plotting
 oi = objOis[0]
 w = np.zeros([oi.visOi.nchannel, oi.nwav])
-wFt = np.zeros([oi.visOi.nchannel, oi.visOi.nwavFt])
 for c in range(oi.visOi.nchannel):
     w[c, :] = oi.wav*1e6
-    wFt[c, :] = range(oi.visOi.nwavFt)
 
-    
-# create the visibility reference. This step depends on PHASEREF_MODE (DF_STAR or DF_SWAP)
-printinf("Creating the visibility reference from {:d} star observations.".format(len(starOis)))
+if REDUCTION == "astrored":
+    wFt = np.zeros([oi.visOi.nchannel, oi.visOi.nwavFt])
+    for c in range(oi.visOi.nchannel):
+        wFt[c, :] = range(oi.visOi.nwavFt)
+
+# calculate the reference visibility for each OB
+printinf("Retrieving visibility references from fits files")
 visRefs = [oi.visOi.visRef.mean(axis=0)*0 for oi in objOis]
 for k in range(len(objOis)):
-    planet_ind = cfg["general"]["reduce"][k]
-    ampRef = np.zeros([oi.visOi.nchannel, oi.nwav])
-    visRef = np.zeros([oi.visOi.nchannel, oi.nwav])
-    for ind in cfg["planet_ois"][planet_ind]["star_indices"]:
-        # not all star files have been loaded, so we cannot trust the order and we need to explicitly look for the correct one
-        starOis_ind = [soi.filename for soi in starOis].index(DATA_DIR+cfg["star_ois"][ind]["filename"]) 
-        soi = starOis[starOis_ind]
-        visRef = visRef+soi.visOi.visRef.mean(axis = 0)
-        ampRef = ampRef+np.abs(soi.visOi.visRef.mean(axis = 0))
-    ###===### 
-#    visRef = np.zeros([oi.visOi.nchannel, oi.nwav])
-#    for ind in range(len(starOis)):
-#        soi = starOis[ind]
-#        visRef = visRef+soi.visOi.visRef.mean(axis = 0)                                                         
-    ###===###
-#    visRefs[k] = ampRef/len(cfg["planet_ois"][planet_ind]["star_indices"])*np.exp(1j*np.angle(visRef/len(objOis)))#/len(cfg["planet_ois"][planet_ind]["star_indices"])))#/len(starOis))) ###===###
-    visRefs[k] = ampRef/len(cfg["planet_ois"][planet_ind]["star_indices"])*np.exp(1j*np.angle(visRef/len(cfg["planet_ois"][planet_ind]["star_indices"])))#/len(starOis))) ###===###     
-
-# in DF_SWAP mode, thephase reference of the star cannot be used. We need to extract the phase ref from the SWAP observations
-if PHASEREF_MODE == "DF_SWAP":
-    printinf("DF_SWAP mode set.")
-    printinf("Calculating the reference phase from {:d} swap observation".format(len(swapOis)))
-    # first we need to shift all of the visibilities to the 0 OPD position, using the separation of the SWAP binary
-    # if swap ra and dec values are provided (from the swapReduce script), we can use them
-    # otherwise we can default to the fiber separation value
-    for k in range(len(swapOis)):
-        oi = swapOis[k]
-        key = cfg["swap_ois"].keys()[k] # the corresponding key in the config file
-        if (not("astrometric_solution" in cfg["swap_ois"][key])):
-            printwar("astrometric_solution not provided for swap {:d}. Defaulting to fiber position RA={:.2f}, DEC={:.2f}".format(k, oi.sObjX, oi.sObjY))
-            swap_ra = oi.sObjX
-            swap_dec = oi.sObjY
-        else:
-            if oi.swap:
-                swap_ra = -cfg["swap_ois"][key]["astrometric_solution"][0]
-                swap_dec = -cfg["swap_ois"][key]["astrometric_solution"][1]                
-            else:
-                swap_ra = cfg["swap_ois"][key]["astrometric_solution"][0]
-                swap_dec = cfg["swap_ois"][key]["astrometric_solution"][1]                
-        oi.visOi.recenterPhase(swap_ra, swap_dec)
-    # now that the visibilities are centered, we can take the mean of the visibilities and 
-    # extract the phase. But we need to separate the two positions of the swap
-    phaseRef1 = np.zeros([oi.visOi.nchannel, oi.nwav])
-    phaseRef2 = np.zeros([oi.visOi.nchannel, oi.nwav])
-    for k in range(len(swapOis)):
-        if swapOis[k].swap:
-            phaseRef2 = phaseRef2+np.mean(swapOis[k].visOi.visRef, axis = 0)
-        else:
-            phaseRef1 = phaseRef1+np.mean(swapOis[k].visOi.visRef, axis = 0)
-    # now we can the phaseref
-    phaseRef = 0.5*(np.angle(phaseRef2)+np.angle(phaseRef1))
-    # because the phase are defined mod 2pi, phaseref can have pi offsets. We need to unwrap that
-    # For this we test the phase continuity of a phase-referenced swap obs
-    testCase = np.angle(swapOis[0].visOi.visRef.mean(axis = 0))-phaseRef
-    unwrapped = 0.5*np.unwrap(2*testCase)
-    correction = unwrapped - testCase
-    phaseRef = phaseRef - correction
-    # for convenience, we store this ref in visRef angle, getting rid of the useless values from the star
-    visRefs = [np.abs(visRef)*np.exp(1j*phaseRef) for visRef in visRefs]
-
-
+    oi = objOis[k]
+    try:
+        visRefs[k] = fits.getdata(oi.filename, "EXOGRAV_VISREF").field("EXOGRAV_VISREF")
+    except:
+        printerr("Cannot find visibility reference (EXOGRAV_VISREF) in file {}".format(oi.filename))
+    
 # subtract the reference phase to each OB
 printinf("Subtracting phase reference to each planet OI.")
 for k in range(len(objOis)):
     oi = objOis[k]
     oi.visOi.addPhase(-np.angle(visRefs[k]))
-
 
 # prepare chi2Maps
 printinf("RA grid: [{:.2f}, {:.2f}] with {:d} points".format(RA_LIM[0], RA_LIM[1], N_RA))

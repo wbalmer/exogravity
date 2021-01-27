@@ -21,15 +21,16 @@ Args:
                           making noinv more likely to be useful.
   contrast_file (str, optional): path to the contrast file (planet/star) to use as a model for the planet visibility amplitude.
                                  Default is None, which is a constant contrast (as a function of wavelength).
-  star_order (int, optional): the order of the polynomial used to fit the stellar component of the visibility (default is 3)
+  star_order (int, optional): the order of the polynomial used to fit the stellar component of the visibility (default is 4)
   star_diameter (float, optional): the diameter of the central star (in mas, to scale the visibility amplitude). Default is 0. 
   corr_met (str, optional): can be "sylvestre" or "drs", or possibly "none" depending on which formula to use for the metrology correction
   corr_disp (str, optional): can be "sylvestre" or "drs", or possibly "none" depending on which formula to use for the dispersion correction
   extension (int, optional): the FITS extension to use, which depends on the polarization in the data. Deafult to 10 (combined).
   swap_target (str, optional): the name of the target for the swap observations if off-axis mode
   calib_strategy (str, optional): "all" to use all star files to calibrate visibility reference. "Nearest" to use the two nearest. On-axis only
-  taregt (str, optional): if you want to restrict to a particular target name, you can specify one
-
+  target (str, optional): if you want to restrict to a particular target name, you can specify one
+  reduction (str, optional, indev): default is "astrored". You can select "dualscivis".
+ 
 Example:
   Minimal
     python create_config datadir=/path/to/your/data/directory output=/path/to/result.yml
@@ -43,11 +44,6 @@ Configuration:
   of observation was used, as well as some parameters for the data reduction. It is strongly advised to use the
   create_config.py script (also provided with the exoGravity data reduction package) to create your configuration file, 
   which you can then tweek to fit your need. Please refer to the documentation of create_config.py.
-
-Todo:
-  *identify which values/plots should be extracted along the reduction and saved from checking data quality
-  *take into account proper complex errors
-  *Exception management?
 
 Authors:
   M. Nowak, and the exoGravity team.
@@ -96,30 +92,30 @@ if os.path.isfile(dargs["output"]):
         stop()
 
 if not("ralim" in dargs.keys()) or not("declim" in dargs.keys()):
-    printwar("ralim or declim not provided in args. Defaulting to fiber position +/- 5 mas.")
+    printwar("ralim or declim not provided in args. Default: fiber position +/- 5 mas.")
     dargs["ralim"] = None
     dargs["declim"] = None
 
 if not("nra" in dargs.keys()):
-    printwar("nra not provided in args. Defaulting to nra=100")
+    printwar("nra not provided in args. Default: nra=100")
     dargs["nra"] = 100
 if not("ndec" in dargs.keys()):
-    printwar("ndec not provided in args. Defaulting to ndec=100")
+    printwar("ndec not provided in args. Default: ndec=100")
     dargs["ndec"] = 100
 if not("nopd" in dargs.keys()):
-    printwar("nopd not provided in args. Defaulting to nopd=100")
+    printwar("nopd not provided in args. Default: to nopd=100")
     dargs["nopd"] = 100
 if not("star_order" in dargs.keys()):
-    printwar("star_order not provided in args. Defaulting to star_order=4")
+    printwar("star_order not provided in args. Default: star_order=4")
     dargs["star_order"] = 4
 if not("gofast" in dargs.keys()):
-    printwar("Value for gofast option not set. Defaulting to gofast=False")
+    printwar("Value for gofast option not set. Defaut: gofast=False")
     dargs['gofast'] = False    
 if not("noinv" in dargs.keys()):
-    printwar("Value for noinv option not set. Defaulting to noinv=False")
+    printwar("Value for noinv option not set. Default: noinv=False")
     dargs['noinv'] = False
 if not("reflag" in dargs.keys()):
-    printwar("Value for reflag not given. Defaulting to reflag = True")
+    printwar("Value for reflag not given. Default: reflag = True")
     dargs['reflag'] = True
 if not("contrast_file" in dargs.keys()):
     printwar("Contrast file not given. Constant contrast will be used")
@@ -129,7 +125,7 @@ if not("extension" in dargs.keys()):
     dargs['extension'] = 10    
 
 if not("star_diameter" in dargs.keys()):
-    printwar("star_diameter not provided in args. Defaulting to star_diameter=0 (point source)")
+    printwar("star_diameter not provided in args. Default: star_diameter=0 (point source)")
     dargs["star_diameter"] = 0
 
 if not("corr_met" in dargs.keys()):
@@ -148,10 +144,14 @@ if not("target" in dargs.keys()):
 
 if not("calib_strategy" in dargs.keys()):
     printwar("calib strategy not given. Using default 'nearest'")
-    dargs["calib_strategy"] = "nearest"    
+    dargs["calib_strategy"] = "nearest"
+
+if not("reduction" in dargs.keys()):
+    printwar("reduction not given. Using default 'astrored'")
+    dargs["reduction"] = "astrored"        
     
 # load the datafiles
-datafiles = glob.glob(dargs["datadir"]+'/GRAVI*astrored*.fits')
+datafiles = glob.glob(dargs["datadir"]+'/GRAVI*'+dargs["reduction"]+'*.fits')
 # remove duplicates with _s extension
 to_keep = []
 for k in range(len(datafiles)):
@@ -211,7 +211,8 @@ general = {"datadir": dargs["datadir"],
            "phaseref_mode": phaseref_mode,
            "corr_met": dargs['corr_met'],
            "corr_disp": dargs['corr_disp'],
-           "extension": int(dargs["extension"]),           
+           "extension": int(dargs["extension"]),
+           "reduction": dargs["reduction"],                      
            "gofast": dargs['gofast'],
            "noinv": dargs['noinv'],
            "reflag": dargs['reflag'],           

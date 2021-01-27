@@ -270,71 +270,16 @@ w = np.zeros([oi.visOi.nchannel, oi.nwav])
 for c in range(oi.visOi.nchannel):
     w[c, :] = oi.wav*1e6
 
-# create visRefs fromn star_indices indicated in the config file
-printinf("Creating the visibility reference from {:d} star observations.".format(len(starOis)))
-visRefs = [oi.visOi.visRef.mean(axis = 0)*0 for oi in objOis]
+# calculate the reference visibility for each OB
+printinf("Retrieving visibility references from fits files")
+visRefs = [oi.visOi.visRef.mean(axis=0)*0 for oi in objOis]
 for k in range(len(objOis)):
-    planet_ind = cfg["general"]["reduce"][k]
-    ampRef = np.zeros([oi.visOi.nchannel, oi.nwav])
-    visRef = np.zeros([oi.visOi.nchannel, oi.nwav])    
-    for ind in cfg["planet_ois"][planet_ind]["star_indices"]:
-        # not all star files have ben loaded, so we cannot trust the order and we need to explicitly look for the correct one
-        starOis_ind = [soi.filename for soi in starOis].index(DATA_DIR+cfg["star_ois"][ind]["filename"]) 
-        soi = starOis[starOis_ind]
-        visRef = visRef+soi.visOi.visRef.mean(axis = 0)
-        ampRef = ampRef+np.abs(soi.visOi.visRef.mean(axis = 0))
-    ###===### 
-    visRef = np.zeros([oi.visOi.nchannel, oi.nwav])
-    for ind in range(len(starOis)):
-        soi = starOis[ind]
-        visRef = visRef+soi.visOi.visRef.mean(axis = 0)                                                         
-    ###===###
-#    visRefs[k] = ampRef/len(cfg["planet_ois"][planet_ind]["star_indices"])*np.exp(1j*np.angle(visRef/len(objOis)))#/len(cfg["planet_ois"][planet_ind]["star_indices"])))#/len(starOis))) ###===###
-    visRefs[k] = ampRef/len(cfg["planet_ois"][planet_ind]["star_indices"])*np.exp(1j*np.angle(visRef/len(cfg["planet_ois"][planet_ind]["star_indices"])))#/len(starOis))) ###===###     
-    
-# in DF_SWAP mode, thephase reference of the star cannot be used. We need to extract the phase ref from the SWAP observations
-if PHASEREF_MODE == "DF_SWAP":
-    printinf("DF_SWAP mode set.")
-    printinf("Calculating the reference phase from {:d} swap observation".format(len(swapOis)))
-    # first we need to shift all of the visibilities to the 0 OPD position, using the separation of the SWAP binary
-    # if swap ra and dec values are provided (from the swapReduce script), we can use them
-    # otherwise we can default to the fiber separation value
-    for k in range(len(swapOis)):
-        oi = swapOis[k]
-        key = cfg["swap_ois"].keys()[k] # the corresponding key in the config file
-        if (not("astrometric_solution" in cfg["swap_ois"][key])):
-            printwar("astrometric_solution not provided for swap {:d}. Defaulting to fiber position RA={:.2f}, DEC={:.2f}".format(k, oi.sObjX, oi.sObjY))
-            swap_ra = oi.sObjX
-            swap_dec = oi.sObjY
-        else:
-            if oi.swap:
-                swap_ra = -cfg["swap_ois"][key]["astrometric_solution"][0]
-                swap_dec = -cfg["swap_ois"][key]["astrometric_solution"][1]                
-            else:
-                swap_ra = cfg["swap_ois"][key]["astrometric_solution"][0]
-                swap_dec = cfg["swap_ois"][key]["astrometric_solution"][1]                
-        oi.visOi.recenterPhase(swap_ra, swap_dec)
-    # now that the visibilities are centered, we can take the mean of the visibilities and 
-    # extract the phase. But we need to separate the two positions of the swap
-    phaseRef1 = np.zeros([oi.visOi.nchannel, oi.nwav])
-    phaseRef2 = np.zeros([oi.visOi.nchannel, oi.nwav])
-    for k in range(len(swapOis)):
-        if swapOis[k].swap:
-            phaseRef2 = phaseRef2+np.mean(swapOis[k].visOi.visRef, axis = 0)
-        else:
-            phaseRef1 = phaseRef1+np.mean(swapOis[k].visOi.visRef, axis = 0)
-    # now we can the phaseref
-    phaseRef = 0.5*(np.angle(phaseRef2)+np.angle(phaseRef1))
-    # because the phase are defined mod 2pi, phaseref can have pi offsets. We need to unwrap that
-    # For this we test the phase continuity of a phase-referenced swap obs
-    testCase = np.angle(swapOis[0].visOi.visRef.mean(axis = 0))-phaseRef
-    unwrapped = 0.5*np.unwrap(2*testCase)
-    correction = unwrapped - testCase
-    phaseRef = phaseRef - correction
-    # for convenience, we store this ref in visRef angle, getting rid of the useless values from the star
-    visRefs = [np.abs(visRef)*np.exp(1j*phaseRef) for visRef in visRefs]
+    oi = objOis[k]
+    try:
+        visRefs[k] = fits.getdata(oi.filename, "EXOGRAV_VISREF").field("EXOGRAV_VISREF")
+    except:
+        printerr("Cannot find visibility reference (EXOGRAV_VISREF) in file {}".format(oi.filename))
 
-    
 # subtract the reference phase to each OB
 printinf("Subtracting phase reference to each planet OI.")
 for k in range(len(objOis)):
