@@ -192,7 +192,7 @@ if REDUCTION == "astrored":
     #    oi.visOi.visDataFt[:, 5, :] = ftThreshold/100
         a, b = np.where(np.abs(oi.visOi.visDataFt).mean(axis = -1) < ftThreshold)
         (a, b, c) = np.meshgrid(a, b, range(oi.nwav))
-        oi.visOi.flagPoints((a, b, c))
+#        oi.visOi.flagPoints((a, b, c))
 
         
 # replace data by the mean over all DITs if go_fast has been requested in the config file
@@ -495,6 +495,11 @@ if not(FIGDIR is None):
         gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.bestFit-oi.visOi.bestFitStar, oi.visOi.flag).mean(axis = 0), fig = fig)
         plt.legend([oi.filename.split("/")[-1], "Astrometry fit"])
         plt.savefig(FIGDIR+"/astrometry_fit_"+str(k)+".pdf")
+        fig = plt.figure(figsize=(10, 8))        
+        gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.visRef, oi.visOi.flag).mean(axis = 0), subtitles = oi.basenames, fig = fig)
+        gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.bestFit, oi.visOi.flag).mean(axis = 0), fig = fig)
+        plt.legend([oi.filename.split("/")[-1], "Star fit"])
+        plt.savefig(FIGDIR+"/star_fit_"+str(k)+".pdf")                
 
     fig = plt.figure(figsize = (10, 10))
     n = int(np.ceil(np.sqrt(len(objOis))))

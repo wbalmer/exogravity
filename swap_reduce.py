@@ -24,19 +24,26 @@ Version:
   xx.xx
 """
 
+# standard imports
 import numpy as np
-from cleanGravity import complexstats as cs
-from cleanGravity import gravityPlot
-import cleanGravity as gravity
-import glob
 import sys, os
+import glob
+import itertools
+
+# cleanGravity imports
+import cleanGravity as gravity
+from cleanGravity import complexstats as cs
+
+# local stuff
 from utils import *
-import ruamel.yaml
 
-# again, need to clean the imports
-#import matplotlib.pyplot as plt
-#import cleanGravity as gravity
-
+# ruamel to read config yml file
+try:
+    import ruamel.yaml
+    RUAMEL = True
+except: # if ruamel not available, switch back to pyyaml, which does not handle comments properly
+    import yaml
+    RUAMEL = False
 
 # arg should be the path to the data directory
 dargs = args_to_dict(sys.argv)
@@ -56,7 +63,10 @@ for req in REQUIRED_ARGS:
 CONFIG_FILE = dargs["config_file"]
 if not(os.path.isfile(CONFIG_FILE)):
     raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
-cfg = ruamel.yaml.load(open(CONFIG_FILE, "r"), Loader=ruamel.yaml.RoundTripLoader)
+if RUAMEL:
+    cfg = ruamel.yaml.load(open(CONFIG_FILE, "r"), Loader=ruamel.yaml.RoundTripLoader)
+else:
+    cfg = yaml.safe_load(open(CONFIG_FILE, "r"))
 
 # GET FILES FOR THE SWAP 
 if not("swap_ois" in cfg.keys()):
@@ -81,56 +91,41 @@ if "ndec" in dargs.keys():
     N_DEC = int(dargs["ndec"])
 else:
     N_DEC = 100
+if "nopd" in dargs.keys():
+    N_OPD = int(dargs["nopd"])
+else:
+    N_OPD = 200
 
+# figdir to know where to put figures
+if "figdir" in dargs.keys():
+    FIGDIR = dargs["figdir"]
+else:
+    FIGDIR = None
+
+# if figdir given, we need to import matplotlib and gravityPlot
+if FIGDIR:
+    import matplotlib.pyplot as plt
+    from cleanGravity import gravityPlot as gPlot
+    
 RA_LIM = [float(r) for r in dargs["ralim"].split(']')[0].split('[')[1].split(',')]
 DEC_LIM = [float(r) for r in dargs["declim"].split(']')[0].split('[')[1].split(',')]
 
 RA_GUESS = float(dargs["raguess"])
-DEC_GUESS = float(dargs["raguess"])
+DEC_GUESS = float(dargs["decguess"])
 
 # retrieve all astrored files from the datadir
 printinf("Found a total of {:d} astroreduced files in {}".format(len(SWAP_FILES), DATA_DIR))
 
 objOis = []
-starOis = []
-
 ois1 = []
 ois2 = []
 
 # load OBs and put them in two groups based on the two swap pos
-for k in range(len(SWAP_FILES)):
+for k in range(0, len(SWAP_FILES)):
     filename = SWAP_FILES[k]
     printinf("Loading file "+filename)    
-    oi = gravity.GravityDualfieldAstrored(filename, extension = 10, corrMet = "drs", corrDisp = "drs")
-    # replace data by the mean over all DITs if go_fast has been requested in the config file
-    if GO_FAST:
-        oi.computeMean()        
-        oi.visOi.recenterPhase(oi.sObjX, oi.sObjY)
-        visData = np.copy(oi.visOi.visData, 'complex')
-        visRef = np.copy(oi.visOi.visRef, 'complex')        
-        oi.visOi.visData = np.zeros([1, oi.visOi.nchannel, oi.nwav], 'complex')
-        oi.visOi.visRef = np.zeros([1, oi.visOi.nchannel, oi.nwav], 'complex')    
-        oi.visOi.visData[0, :, :] = visData.mean(axis = 0)
-        oi.visOi.visRef[0, :, :] = visRef.mean(axis = 0)
-        uCoord = np.copy(oi.visOi.uCoord)
-        oi.visOi.uCoord = np.zeros([1, oi.visOi.nchannel, oi.nwav])
-        oi.visOi.uCoord[0, :, :] = np.mean(uCoord, axis = 0)
-        vCoord = np.copy(oi.visOi.vCoord)
-        oi.visOi.vCoord = np.zeros([1, oi.visOi.nchannel, oi.nwav])
-        oi.visOi.vCoord[0, :, :] = np.mean(vCoord, axis = 0)
-        u = np.copy(oi.visOi.u)
-        oi.visOi.u = np.zeros([1, oi.visOi.nchannel])
-        oi.visOi.u[0, :] = np.mean(u, axis = 0)
-        v = np.copy(oi.visOi.v)
-        oi.visOi.v = np.zeros([1, oi.visOi.nchannel])
-        oi.visOi.v[0, :] = np.mean(v, axis = 0)        
-        oi.visOi.ndit = 1
-        oi.ndit = 1
-        oi.visOi.recenterPhase(-oi.sObjX, -oi.sObjY)        
-    oi.computeMean()
-    if (GO_FAST):
-        oi.visOi.visErr = np.zeros([1, oi.visOi.nchannel, oi.nwav], 'complex')    
-        oi.visOi.visErr[0, :, :] = np.copy(oi.visOi.visErrMean)    
+    oi = gravity.GravityDualfieldAstrored(filename, extension = cfg["general"]["extension"], corrMet = "drs", corrDisp = "drs")
+    # note: in case go_fast is set, files should not be averaged over DITs at this step, but later
     if oi.swap:
         printinf("Adding OB {} to group 1 (swap=True)".format(filename.split('/')[-1]))
         ois1.append(oi)
@@ -148,17 +143,28 @@ if len(ois2) == 0:
     printerr("Group 2 does not contain any OB")
     stop()
 
+printinf("gofast flag is set. Averaging over DITs")
+if (GO_FAST):
+    for oi in objOis:
+        printinf("Averaging file {}".format(oi.filename))
+        oi.visOi.recenterPhase(oi.sObjX, oi.sObjY) # mean should be calculated in the frame of the SC
+        oi.computeMean()
+        oi.visOi.recenterPhase(-oi.sObjX, -oi.sObjY) # back to original (FT) frame        
+    
 # calculate the useful w for plotting
 w = np.zeros([6, oi.nwav])
 for k in range(6):
     w[k, :] = oi.wav*1e6
 
 # we need to coadd the elements of each group
-# this is best done in in the SC reference frame, so we need to shift the OBs to the SC frame
+# this is best done in in the SC reference frame to avoid issues with rapid oscillations of the phase
+# so we need to shift the OBs to the SC frame. We could use the fiber position (oi.visOi.sObjX and Y)
+# but sometimes the target is not correctly centered. So the user has to supply an estimate of the
+# astrometry of the target
 printinf("Recentering OBs on SC position")
 for oi in ois1+ois2:
     if oi.swap:
-        oi.visOi.recenterPhase(-RA_GUESS, -DEC_GUESS)
+        oi.visOi.recenterPhase(-RA_GUESS, -DEC_GUESS)        
     else:
         oi.visOi.recenterPhase(RA_GUESS, DEC_GUESS)        
 
@@ -188,11 +194,11 @@ if UNWRAP:
     correction = unwrapped - testCase
     phaseRef = phaseRef - correction
 
-
 # subtract the phase reference
 printinf("Phase referencing OBs")
 for oi in ois1+ois2:
     oi.visOi.addPhase(-phaseRef)
+
 
 # recenter each OB on its initial position
 printinf("Recentering OBs on initial positions")
@@ -202,32 +208,59 @@ for oi in ois1+ois2:
     else:
         oi.visOi.recenterPhase(-RA_GUESS, -DEC_GUESS)        
 
-# chi2Map
+# prepare chi2Maps
 printinf("RA grid: [{:.2f}, {:.2f}] with {:d} points".format(RA_LIM[0], RA_LIM[1], N_RA))
 printinf("DEC grid: [{:.2f}, {:.2f}] with {:d} points".format(DEC_LIM[0], DEC_LIM[1], N_DEC))
 raValues = np.linspace(RA_LIM[0], RA_LIM[1], N_RA)
 decValues = np.linspace(DEC_LIM[0], DEC_LIM[1], N_DEC)
+raValues_swap = np.linspace(-RA_LIM[1], -RA_LIM[0], N_RA)
+decValues_swap = np.linspace(-DEC_LIM[-1], -DEC_LIM[0], N_DEC)
+chi2Maps = np.zeros([len(objOis), N_RA, N_DEC])
+bestFits = []
+# to store best fits values on each file
+raBests = np.zeros(len(objOis))
+decBests = np.zeros(len(objOis))
 
-for k in range(len(ois2)):
-    oi = ois2[k]
-    printinf("Calculating chi2 Map for OB {}".format(oi.filename.split('/')[-1]))
-    oi.visOi.computeChi2Map(raValues, decValues, nopds = 100, visInst = np.abs(oi.visOi.visRef.mean(axis = 0)))
+# calculate chi2Maps using the fitAstrometry method, which itself call fitVisRefOpd
+for k in range(len(objOis)):
+    oi = objOis[k]
+    if oi.swap:
+        fitAstro = oi.visOi.fitVisRefAstrometry(raValues_swap, decValues_swap, nopd=N_OPD)
+    else:
+        fitAstro = oi.visOi.fitVisRefAstrometry(raValues, decValues, nopd=N_OPD)        
+    chi2Maps[k, :, :] = fitAstro["map"]
+    bestFits.append(fitAstro["fit"])
+    raBests[k] = fitAstro["best"][0]
+    decBests[k] = fitAstro["best"][1]
 
-for k in range(len(ois1)):
-    oi = ois1[k]
-    printinf("Calculating chi2 Map for OB {}".format(oi.filename.split('/')[-1]))            
-    oi.visOi.computeChi2Map(-raValues[::-1], -decValues[::-1], nopds = 100, visInst = np.abs(oi.visOi.visRef.mean(axis = 0)))    
+# calculate the best RA and DEC taking into account swap mode:
+raBest_swap = np.mean(np.array([raBests[k] for k in range(len(objOis)) if objOis[k].swap]))
+decBest_swap = np.mean(np.array([decBests[k] for k in range(len(objOis)) if objOis[k].swap]))
+raBest = np.mean(np.array([raBests[k] for k in range(len(objOis)) if not(objOis[k].swap)]))
+decBest = np.mean(np.array([decBests[k] for k in range(len(objOis)) if not(objOis[k].swap)]))
 
-raBest = np.array([oi.visOi.fit['xBest'] for oi in ois2]+[-oi.visOi.fit['xBest'] for oi in ois1])
-decBest = np.array([oi.visOi.fit['yBest'] for oi in ois2]+[-oi.visOi.fit['yBest'] for oi in ois1])
+printinf("Astrometric solution found using NO SWAP file: RA={:f} mas, DEC={:f} mas".format(raBest, decBest))
+printinf("Astrometric solution found using SWAP files: RA={:f} mas, DEC={:f} mas".format(raBest_swap, decBest_swap))
 
+# get the astrometric values and calculate the mean, and add it to the YML file (same value for all swap Ois)
+for key in cfg['swap_ois'].keys():
+    cfg["swap_ois"][key]["astrometric_solution"] = [float(raBest), float(decBest)] # YAML cannot convert numpy types
 
+# rewrite the YML
+f = open(CONFIG_FILE, "w")
+if RUAMEL:
+    f.write(ruamel.yaml.dump(cfg, Dumper=ruamel.yaml.RoundTripDumper))
+else:
+    f.write(yaml.safe_dump(cfg, default_flow_style = False)) 
+f.close()
+    
+# now its time to plot the chi2Maps in FIGDIR if given
 if not(FIGDIR is None):
     for k in range(len(objOis)):
         oi = objOis[k]
         fig = plt.figure(figsize=(10, 8))
-        gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.visRef-oi.visOi.bestFitStar, oi.visOi.flag).mean(axis = 0), subtitles = oi.basenames, fig = fig)
-        gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.bestFit-oi.visOi.bestFitStar, oi.visOi.flag).mean(axis = 0), fig = fig)
+        gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.visRef, oi.visOi.flag).mean(axis = 0), subtitles = oi.basenames, fig = fig)
+        gPlot.reImPlot(w, np.ma.masked_array(bestFits[k], oi.visOi.flag).mean(axis = 0), fig = fig)
         plt.legend([oi.filename.split("/")[-1], "Astrometry fit"])
         plt.savefig(FIGDIR+"/astrometry_fit_"+str(k)+".pdf")
 
@@ -237,88 +270,12 @@ if not(FIGDIR is None):
         ax = fig.add_subplot(n, n, k+1)
         oi = objOis[k]
         name = oi.filename.split('/')[-1]
-        ax.imshow(chi2Maps[k].sum(axis = 0).T, origin = "lower", extent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)])
+        if oi.swap:
+            ax.imshow(chi2Maps[k].T, origin = "lower", extent = [np.min(raValues_swap), np.max(raValues_swap), np.min(decValues_swap), np.max(decValues_swap)])
+        else:
+            ax.imshow(chi2Maps[k].T, origin = "lower", extent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)])            
         ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
         ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
         ax.set_title(name)
     plt.tight_layout()
     plt.savefig(FIGDIR+"/astrometry_chi2Maps.pdf")
-
-    fig = plt.figure(figsize = (6, 6))
-    ax = fig.add_subplot(111)
-    ax.plot(raBest, decBest, "o")
-    val, vec = np.linalg.eig(cov)
-    e1 = matplotlib.patches.Ellipse((np.mean(raBest), np.mean(decBest)), 2*val[0]**0.5, 2*val[1]**0.5, angle = np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color = 'k', linewidth=2, linestyle = '--')
-    e2 = matplotlib.patches.Ellipse((np.mean(raBest), np.mean(decBest)), 3*2*val[0]**0.5, 3*2*val[1]**0.5, angle = np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color = 'k', linewidth=2)    
-    ax.add_patch(e1)
-    ax.add_patch(e2)    
-    ax.plot([np.mean(raBest)], [np.mean(decBest)], '+k')
-    ax.text(raBest.mean()+val[0]**0.5, decBest.mean()+val[1]**0.5, "RA={:.2f}+-{:.3f}\nDEC={:.2f}+-{:.3f}\nCOV={:.2f}".format(np.mean(raBest), cov[0, 0]**0.5, np.mean(decBest), cov[1, 1]**0.5, cov[0, 1]/np.sqrt(cov[0, 0]*cov[1, 1])))
-    ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
-    ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
-    plt.axis("equal")
-    plt.savefig(FIGDIR+"/solution.pdf")
-    
-
-"""
-oi = objOis[-3]
-plt.figure()
-plt.imshow(oi.visOi.fit["chi2Map"].T, origin = "lower", extent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)])
-
-fig = plt.figure()
-gravityPlot.reImPlot(w, oi.visOi.visRef[:, :, :].mean(axis = 0), fig = fig, subtitles = oi.basenames)
-gravityPlot.reImPlot(w, oi.visOi.visRefFit[:, :, :].mean(axis = 0), fig = fig)
-
-plt.figure()
-plt.plot(raBest, decBest, "+")
-"""
-
-for key in cfg['swap_ois'].keys():
-    cfg["swap_ois"][key]["astrometric_solution"] = [float(raBest.mean()), float(decBest.mean())] # YAML cannot convert numpy types
-            
-f = open(CONFIG_FILE, "w")
-f.write(ruamel.yaml.dump(cfg, Dumper=ruamel.yaml.RoundTripDumper))
-f.close()
-
-stop()
-
-        
-fig = plt.figure()
-gravityPlot.reImPlot(w, ois1[0].visOi.visRef[:, :, :].mean(axis = 0), fig = fig, subtitles = oi.basenames)
-gravityPlot.reImPlot(w, ois2[0].visOi.visRef[:, :, :].mean(axis = 0), fig = fig)
-
-
-"""
-for c in range(oi.visOi.nchannel):
-    for k in range(1, oi.nwav):
-        if phaseRef[c, k]-phaseRef[c, k-1] > np.pi/2:
-            phaseRef[c, k:]=phaseRef[c, k:] - np.pi
-        elif phaseRef[c, k]-phaseRef[c, k-1] < -np.pi/2:
-            phaseRef[c, k:]=phaseRef[c, k:] + np.pi
-"""
-    
-#ois1.visOi.recenterPhase(-ois1.sObjX, -ois1.sObjY)
-#ois2.visOi.recenterPhase(-ois2.sObjX, -ois2.sObjY)
-
-stop
-
-"""
-fig = plt.figure()
-gravityPlot.reImPlot(w, ois1.visOi.visRef[0, :, :]*np.exp(1j*np.angle(ois2.visOi.visRef[0, :, :])), fig = fig, subtitles = oi.basenames)
-"""
-
-
-fig = plt.figure()
-gravityPlot.reImPlot(w, ois1.visOi.visRef[0, :, :], fig = fig, subtitles = oi.basenames)
-
-ois1.visOi.addPhase(-phaseRef)
-
-gravityPlot.reImPlot(w, ois1.visOi.visRef[:, :, :].mean(axis = 0), fig = fig)
-
-u = ois1.visOi.uCoord.mean(axis = 0)
-v = ois1.visOi.vCoord.mean(axis = 0)
-ra =  ois1.sObjX/3600.0/360.0/1000.0*2*np.pi
-dec = ois1.sObjY/3600.0/360.0/1000.0*2*np.pi
-cosine = np.exp(1j*2*np.pi*(ra*u+dec*v))
-
-#gravityPlot.reImPlot(w, 5000*cosine, fig = fig)

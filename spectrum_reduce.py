@@ -220,12 +220,12 @@ for oi in objOis:
 #    oi.visOi.visDataFt[:, 5, :] = ftThreshold/100            
     a, b = np.where(np.abs(oi.visOi.visDataFt).mean(axis = -1) < ftThreshold)
     (a, b, c) = np.meshgrid(a, b, range(oi.nwav))
-    oi.visOi.flagPoints((a, b, c))
+#    oi.visOi.flagPoints((a, b, c))
 
 # normalize by FT flux to get rid of atmospheric transmission variations
-printinf("Normalizing visibilities to FT coherent flux.")
-for oi in objOis+starOis:
-    oi.visOi.scaleVisibilities(1.0/np.abs(oi.visOi.visDataFt).mean(axis = -1))
+#printinf("Normalizing visibilities to FT coherent flux.")
+#for oi in objOis+starOis:
+#    oi.visOi.scaleVisibilities(1.0/np.abs(oi.visOi.visDataFt).mean(axis = -1))
 
 
 # replace data by the mean over all DITs if go_fast has been requested in the config file
@@ -584,7 +584,7 @@ if (GO_FAST==False):
         printinf("A total of {:d} bad points have be reflagged for file {}".format(len(indx[0]), oi.filename))
 
 if not(FIGDIR is None):
-    for k in range(len(objOis)*0+4):
+    for k in range(len(objOis)):
         oi = objOis[k]
         fig = plt.figure(figsize = (10, 8))
         gPlot.reImPlot(w, (oi.visOi.visPlanet*(1-oi.visOi.flag)).mean(axis = 0)*np.exp(-1j*np.angle(visRefs[k])), subtitles = oi.basenames, fig = fig)
