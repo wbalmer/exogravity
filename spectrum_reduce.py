@@ -41,11 +41,6 @@ except: # if ruamel not available, switch back to pyyaml, which does not handle 
     RUAMEL = False
 import sys, os
 
-
-#import matplotlib.pyplot as plt
-#plt.ion()
-#from cleanGravity import gravityPlot
-
 ### GLOBALS ###
 SPECTRUM_FILENAME = "spectrum.fits"
 ###

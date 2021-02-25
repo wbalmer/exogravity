@@ -24,7 +24,8 @@ Version:
 import numpy as np
 import astropy.io.fits as fits
 import cleanGravity as gravity
-from utils import * # utils from this exooGravity package
+from utils import * # utils from this exoGravity package
+from common import *
 # ruamel to read config yml file
 try:
     import ruamel.yaml
@@ -140,7 +141,12 @@ for filename in SWAP_FILES:
         printerr("Unknonwn reduction type '{}'.".format(REDUCTION))                                                                        
     swapOis.append(oi)
     printinf("File is from a SWAP")
-    
+
+if REDUCTION == "astrored":
+    # flag points based on FT value and phaseRef arclength
+    ftThresholdStar = np.array([np.abs(oi.visOi.visDataFt).mean() for oi in starOis]).mean()/5.0    
+    for oi in starOis:
+        filter_ftflux(oi, ftThresholdStar)             
         
 # create the visibility reference. This step depends on PHASEREF_MODE (DF_STAR or DF_SWAP)
 printinf("Creating the visibility reference from {:d} star observations.".format(len(starOis)))

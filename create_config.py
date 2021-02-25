@@ -30,6 +30,9 @@ Args:
   calib_strategy (str, optional): "all" to use all star files to calibrate visibility reference. "Nearest" to use the two nearest. On-axis only
   target (str, optional): if you want to restrict to a particular target name, you can specify one
   reduction (str, optional, indev): default is "astrored". You can select "dualscivis".
+  ft_flux_threshold (float, optional): if positive, all data with ft flux below this number times the mean ft flux for on star observation are removed (default 0.2)
+  phaseref_arclength_threshold (float, optional): if positive, the arclength of the polyfit to phaseref is calculated for each dit and baseline, and the data with an arclength 
+                                                  greater that this threshold are removed. Default: 2.5
  
 Example:
   Minimal
@@ -148,7 +151,16 @@ if not("calib_strategy" in dargs.keys()):
 
 if not("reduction" in dargs.keys()):
     printwar("reduction not given. Using default 'astrored'")
-    dargs["reduction"] = "astrored"        
+    dargs["reduction"] = "astrored"
+
+if not("phaseref_arclength_threshold" in dargs.keys()):
+    printwar("phaseref_arclength_threshold not given. Using default value of 2.5")
+    dargs["phaseref_arclength_threshold"] = 2.5
+if not("ft_flux_threshold" in dargs.keys()):
+    printwar("ft_flux_threshold not given. Using default value of 0.2")
+    dargs["ft_flux_threshold"] = 0.2    
+
+
     
 # load the datafiles
 datafiles = glob.glob(dargs["datadir"]+'/GRAVI*'+dargs["reduction"]+'*.fits')
@@ -224,7 +236,9 @@ general = {"datadir": dargs["datadir"],
            "ralim": ralim,
            "declim": declim,
            "star_order": int(dargs["star_order"]),
-           "star_diameter": float(dargs["star_diameter"]),           
+           "star_diameter": float(dargs["star_diameter"]),
+           "phaseref_arclength_threshold": float(dargs["phaseref_arclength_threshold"]),
+           "ft_flux_threshold": float(dargs["ft_flux_threshold"]),                                 
            "reduce": ["p"+str(j) for j in range(len(objOis))]}
 
 planet_files = {}
