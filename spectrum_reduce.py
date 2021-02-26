@@ -21,18 +21,21 @@ Authors:
 Version:
   xx.xx
 """
-
+# BASIC IMPORTS
 import numpy as np
-import scipy.special
-import scipy.linalg
-from datetime import datetime
+import scipy.sparse, scipy.sparse.linalg
+from scipy.linalg import lapack
+import astropy.io.fits as fits
+# cleanGravity IMPORTS
 import cleanGravity as gravity
 from cleanGravity import complexstats as cs
-import glob
 from cleanGravity.utils import loadFitsSpectrum, saveFitsSpectrum
-from utils import *
+from utils import * # utils from this exooGravity package
+from common import *
+# other random stuffs
+import glob
 import itertools
-from astropy.io import fits
+# ruamel to read config yml file
 try:
     import ruamel.yaml
     RUAMEL = True
@@ -63,23 +66,8 @@ OUTPUT_DIR = dargs["outputdir"]
 # Test if output dir exists
 if not(os.path.isdir(OUTPUT_DIR)):
     printwar("Creating directory {}.".format(OUTPUT_DIR))    
-#    r = input("[INPUT]: Create it? (y/n).")
-#    if not(r.lower() in ['y', 'yes']):
-#        printerr("Interrupted by user")
     os.mkdir(OUTPUT_DIR)
     
-#else: #if directory aready exits, check for files
-#    if os.path.isfile(OUTPUT_DIR+SPECTRUM_FILENAME):
-#        printwar("A file {} has been found in specified output directory {}, and will be overwritten by this script.".format(SPECTRUM_FILENAME, OUTPUT_DIR))
-#        r = input("[INPUT]: Do you want to continue? (y/n)")
-#        if not(r.lower() in ['y', 'yes']):
-#            printerr("Interrupted by user")
-#    if os.path.isfile(OUTPUT_DIR+COVARIANCE_FILENAME):
-#        printwar("A file {} has been found in specified output directory {}, and will be overwritten by this script.".format(COVARIANCE_FILENAME, OUTPUT_DIR))
-#        r = input("[INPUT]: Do you want to continue? (y/n)")
-#        if not(r.lower() in ['y', 'yes']):
-#            printerr("Interrupted by user")               
-
 CONFIG_FILE = dargs["config_file"]
 if not(os.path.isfile(CONFIG_FILE)):
     raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
@@ -109,6 +97,11 @@ else:
 STAR_ORDER = cfg["general"]["star_order"]
 STAR_DIAMETER = cfg["general"]["star_diameter"]
 EXTENSION = cfg["general"]["extension"]
+REDUCTION = cfg["general"]["reduction"]
+
+# FILTER DATA
+PHASEREF_ARCLENGTH_THRESHOLD = cfg["general"]["phaseref_arclength_threshold"]
+FT_FLUX_THRESHOLD = cfg["general"]["ft_flux_threshold"]
 
 # OVERWRITE SOME OF THE CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
 if "gofast" in dargs.keys():
@@ -148,116 +141,52 @@ try:
 except:
     printerr("Could not extract the astrometry from the config file {}".format(CONFIG_FILE))
     printinf("Please run the script 'astrometryReduce' first, or provide RA DEC values as arguments:")
-    printinf("spectrumReduce.py config.yal ra_value_in_mas dec_value_in_mas")
     stop()
 
-
-#### deprecated part of the code #####
-# HD206893
-#datadir = "/home/mcn35/2018-09-21_allwavelengths/"
-#datadir = "/data1/gravity/PDS70/"
-#datafiles = glob.glob(datadir+'/GRAVI*astrored*.fits')
-#datafiles.sort()
-#ra = np.array([130.85151515, 131.05353535, 131.25555556, 130.85151515])
-#dec = np.array([197.82747475, 197.72646465, 197.32242424, 198.02949495])
-
-#ra = np.array([127.31616162, 127.31616162, 127.01313131, 126.81111111, 127.01313131])
-#dec = np.array([199.03959596, 198.73656566, 199.34262626, 199.54464646, 199.54464646])
-
-#ra = np.array([130.85151515, 131.05353535, 131.25555556, 130.85151515])*0+131.00
-#dec = np.array([197.82747475, 197.72646465, 197.32242424, 198.02949495])*0+197.72
-
-
-#astrometry = np.loadtxt("/home/mcn35/astrometry.txt")
-#ra = astrometry[:, 0]
-#dec = astrometry[:, 1]
-
-#############
-
-starOis = []
 objOis = []
-swapOis = [] # first position of the swap (only in DF_SWAP mode)
 
 sFluxOis = []
 oFluxOis = []
 
-
 # LOAD DATA
 t = time.time()
-for filename in PLANET_FILES+STAR_FILES+SWAP_FILES:
+# LOAD DATA
+for filename in PLANET_FILES:
     printinf("Loading file "+filename)
-    if (PHASEREF_MODE == "DF_SWAP") and (filename in STAR_FILES):
-        oi = gravity.GravityDualfieldAstrored(filename, corrMet = "drs", extension = EXTENSION, corrDisp = "drs")
-    elif filename in PLANET_FILES:
-        oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = EXTENSION, corrDisp = cfg["general"]["corr_disp"], reflag = REFLAG)
-    else:
+    if REDUCTION == "astrored":
         oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = EXTENSION, corrDisp = cfg["general"]["corr_disp"])
-    if filename in PLANET_FILES:
-        objOis.append(oi)
-        printinf("File is on planet. FT coherent flux: {:.2e}".format(np.mean(np.abs(oi.visOi.visDataFt))))        
-    elif filename in SWAP_FILES:
-        swapOis.append(oi)
-        printinf("File is from a SWAP")
+        printinf("File is on planet. FT coherent flux: {:.2e}".format(np.mean(np.abs(oi.visOi.visDataFt))))                
+    elif REDUCTION == "dualscivis":
+        oi = gravity.GravityDualfieldScivis(filename, extension = EXTENSION)
+        printinf("File is on planet")
     else:
-        starOis.append(oi)
-        printinf("File is on star")
+        printerr("Unknonwn reduction type '{}'.".format(REDUCTION))        
+    objOis.append(oi)
 
-
-# flag points based on FT value
-ftThreshold = np.array([np.abs(oi.visOi.visDataFt).mean() for oi in objOis]).mean()/10.0
-printinf("Flag data below FT threshold of {:.2e}".format(ftThreshold))
-for oi in objOis:
-#    oi.visOi.visDataFt[:, 0, :] = ftThreshold/100
-#    oi.visOi.visDataFt[:, 1, :] = ftThreshold/100
-#    oi.visOi.visDataFt[:, 2, :] = ftThreshold/100    
-#    oi.visOi.visDataFt[:, 3, :] = ftThreshold/100
-#    oi.visOi.visDataFt[:, 4, :] = ftThreshold/100
-#    oi.visOi.visDataFt[:, 5, :] = ftThreshold/100            
-    a, b = np.where(np.abs(oi.visOi.visDataFt).mean(axis = -1) < ftThreshold)
-    (a, b, c) = np.meshgrid(a, b, range(oi.nwav))
-#    oi.visOi.flagPoints((a, b, c))
+# filter data
+if REDUCTION == "astrored":
+    # flag points based on FT value and phaseRef arclength
+    ftThresholdPlanet = cfg["general"]["ftOnPlanetMeanFlux"]*FT_FLUX_THRESHOLD
+    ftThresholdStar = cfg["general"]["ftOnStarMeanFlux"]*FT_FLUX_THRESHOLD    
+    for oi in objOis:
+        if oi in objOis:
+            filter_ftflux(oi, ftThresholdPlanet)
+            if PHASEREF_ARCLENGTH_THRESHOLD > 0:
+                filter_phaseref_arclength(oi, PHASEREF_ARCLENGTH_THRESHOLD)
 
 # normalize by FT flux to get rid of atmospheric transmission variations
 #printinf("Normalizing visibilities to FT coherent flux.")
 #for oi in objOis+starOis:
 #    oi.visOi.scaleVisibilities(1.0/np.abs(oi.visOi.visDataFt).mean(axis = -1))
 
-
 # replace data by the mean over all DITs if go_fast has been requested in the config file
 printinf("gofast flag is set. Averaging over DITs")
-for oi in objOis+starOis: # mean should not be calculated on swap before phase correction
+for oi in objOis: # mean should not be calculated on swap before phase correction
     if (GO_FAST):
-        printinf("Averaging file {}".format(oi.filename))        
+        printinf("Averaging file {}".format(oi.filename))
+        oi.visOi.recenterPhase(oi.sObjX, oi.sObjY)
         oi.computeMean()
-        oi.visOi.recenterPhase(oi.sObjX, oi.sObjY, radec = True)
-        u = np.copy(oi.visOi.u)
-        oi.visOi.u = np.zeros([1, oi.visOi.nchannel])
-        oi.visOi.u[0, :] = np.mean(u, axis = 0)
-        v = np.copy(oi.visOi.v)
-        oi.visOi.v = np.zeros([1, oi.visOi.nchannel])        
-        oi.visOi.v[0, :] = np.mean(v, axis = 0)
-        oi.visOi.visData = np.tile(np.mean(oi.visOi.visData*~oi.visOi.flag, axis = 0), [1, 1, 1])#/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
-        oi.visOi.visRef = np.tile(np.mean(oi.visOi.visRef*~oi.visOi.flag, axis = 0), [1, 1, 1])#/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
-        oi.visOi.uCoord = np.tile(np.mean(oi.visOi.uCoord*~oi.visOi.flag, axis = 0), [1, 1, 1])#/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
-        oi.visOi.vCoord = np.tile(np.mean(oi.visOi.vCoord*~oi.visOi.flag, axis = 0), [1, 1, 1])#/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
-#        oi.visOi.visCov = np.tile(np.mean(oi.visOi.visCov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
-#        oi.visOi.visPcov = np.tile(np.mean(oi.visOi.visPcov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
-#        oi.visOi.visRefCov = np.tile(np.mean(oi.visOi.visRefCov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
-#        oi.visOi.visRefPcov = np.tile(np.mean(oi.visOi.visRefPcov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
-        for dit, c in itertools.product(range(1, oi.visOi.ndit), range(oi.visOi.nchannel)):
-            oi.visOi.visRefCov[0, c] = oi.visOi.visRefCov[0, c] + oi.visOi.visRefCov[dit, c]
-            oi.visOi.visRefPcov[0, c] = oi.visOi.visRefPcov[0, c] + oi.visOi.visRefPcov[dit, c]
-        oi.visOi.visRefCov = oi.visOi.visRefCov[0:1, :]/oi.visOi.ndit**2
-        oi.visOi.visRefPcov = oi.visOi.visRefPcov[0:1, :]/oi.visOi.ndit**2       
-        oi.visOi.flag = np.tile(np.any(oi.visOi.flag, axis = 0), [1, 1, 1])
-        oi.visOi.flagCov = np.tile(np.any(oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])        
-        oi.visOi.ndit = 1
-        oi.ndit = 1        
-        oi.visOi.recenterPhase(-oi.sObjX, -oi.sObjY)        
-        oi.computeMean()
-        oi.visOi.visErr = np.zeros([1, oi.visOi.nchannel, oi.nwav], 'complex64')    
-        oi.visOi.visErr[0, :, :] = np.copy(oi.visOi.visErrMean)
-
+        oi.visOi.recenterPhase(-oi.sObjX, -oi.sObjY)
         
 # calculate the very useful w for plotting
 oi = objOis[0]
@@ -293,9 +222,9 @@ for k in range(len(objOis)):
             oi.visOi.phi_values[dit, c, :] = np.exp(1j*phase[dit, c, :])
 
 # create projector matrices
-printinf("Create projector matrices (p_matrices)")
 for k in range(len(objOis)):
     oi = objOis[k]
+    printinf("Create projector matrices (p_matrices) ({}/{})".format(k, len(objOis)))
     # calculate the projector
     wav = oi.wav*1e6
     vectors = np.zeros([STAR_ORDER+1, oi.nwav], 'complex64')
@@ -361,7 +290,6 @@ for k in range(len(objOis)):
             m = int(np.sum(d))
             oi.visOi.m[dit, c] = m
 
-
 # TODO: is it useful?
 """
 # if injection data available, load them
@@ -423,7 +351,6 @@ for k in range(len(objOis)):
             Y[r:r+m] = np.dot(oi.visOi.h_matrices[dit, c, 0:m, :], oi.visOi.visRef[dit, c, :])
             r = r+m
 
-
 Y2 = cs.conj_extended(Y)
 H2 = cs.conj_extended(H)
 
@@ -462,7 +389,7 @@ for k in range(len(objOis)):
 #            Omega_c_sp = scipy.sparse.csc_matrix(np.diag(oi.visOi.phi_values[dit, c, :]))
 #            Omega[c*oi.nwav:(c+1)*oi.nwav, c*oi.nwav:(c+1)*oi.nwav] = Omega_c_sp.todense()
 #            Ginv_c_sp = scipy.sparse.csc_matrix(np.diag(1.0/np.abs(visRefs[k][c, :])))
- #           Ginv[c*oi.nwav:(c+1)*oi.nwav, c*oi.nwav:(c+1)*oi.nwav] = Ginv_c_sp.todense()
+#            Ginv[c*oi.nwav:(c+1)*oi.nwav, c*oi.nwav:(c+1)*oi.nwav] = Ginv_c_sp.todense()
             m = int(oi.visOi.m[dit, c])            
             H_elem_c_sp = scipy.sparse.csc_matrix(oi.visOi.h_matrices[dit, c, 0:m, :])
             H_elem[this_r:this_r+m, c*oi.nwav:(c+1)*nwav] = H_elem_c_sp.todense()
@@ -528,7 +455,6 @@ Cerr = np.dot(B, np.dot(0.5*np.real(covY2+pcovY2), B.T))
 # save raw contrast spectrum and diagonal error terms in a file
 printinf("Writting spectrum in FITS file")
 saveFitsSpectrum(OUTPUT_DIR+"/"+SPECTRUM_FILENAME, wav, C, Cerr, C, Cerr)
-
 
 # now we want to recontruct the planet visibilities and the best fit obtained, in the original
 # pipeline reference frame. The idea is that we want to compare the residuals to the pipeline

@@ -135,10 +135,7 @@ else:
     printerr("The given contrast file ({}) should have a fits extension".format(fits))
 
 # lists to contain the planet, star, and potentially swap OIs
-starOis = [] # will contain OIs on the central star
 objOis = [] # contains the OIs on the planet itself
-swapOis = [] # first position of the swap (only in DF_SWAP mode)
-
 
 # LOAD DATA
 for filename in PLANET_FILES:
@@ -152,42 +149,19 @@ for filename in PLANET_FILES:
     else:
         printerr("Unknonwn reduction type '{}'.".format(REDUCTION))        
     objOis.append(oi)
-
-for filename in STAR_FILES:
-    printinf("Loading file "+filename)
-    if (PHASEREF_MODE == "DF_SWAP"):
-        if REDUCTION == "astrored":        
-            oi = gravity.GravityDualfieldAstrored(filename, corrMet = "drs", extension = EXTENSION, corrDisp = "drs")
-        elif REDUCTION == "dualscivis":
-            oi = gravity.GravityDualfieldScivis(filename, extension = EXTENSION)
-        else:
-            printerr("Unknonwn reduction type '{}'.".format(REDUCTION))            
-    else:
-        if REDUCTION == "astrored":                
-            oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = EXTENSION, corrDisp = cfg["general"]["corr_disp"])
-        elif REDUCTION == "dualscivis":
-            oi = gravity.GravityDualfieldScivis(filename, extension = EXTENSION)
-        else:
-            printerr("Unknonwn reduction type '{}'.".format(REDUCTION))                        
-    starOis.append(oi)
-    printinf("File is on star")
-
-# FILTER DATA
+    
+# filter data
 if REDUCTION == "astrored":
     # flag points based on FT value and phaseRef arclength
-    ftThresholdPlanet = np.array([np.abs(oi.visOi.visDataFt).mean() for oi in objOis]).mean()*FT_FLUX_THRESHOLD
-    ftThresholdStar = np.array([np.abs(oi.visOi.visDataFt).mean() for oi in starOis]).mean()*FT_FLUX_THRESHOLD
-    for oi in objOis+starOis:
-        if oi in objOis:
-            filter_ftflux(oi, ftThresholdPlanet)
-            if PHASEREF_ARCLENGTH_THRESHOLD > 0:
-                filter_phaseref_arclength(oi, PHASEREF_ARCLENGTH_THRESHOLD)            
-        else:
-            filter_ftflux(oi, ftThresholdStar)             
-            
+    ftThresholdPlanet = cfg["general"]["ftOnPlanetMeanFlux"]*FT_FLUX_THRESHOLD
+    for oi in objOis:
+        filter_ftflux(oi, ftThresholdPlanet)
+        if PHASEREF_ARCLENGTH_THRESHOLD > 0:
+            filter_phaseref_arclength(oi, PHASEREF_ARCLENGTH_THRESHOLD)            
+
 # replace data by the mean over all DITs if go_fast has been requested in the config file
 printinf("gofast flag is set. Averaging over DITs")
-for oi in objOis+starOis: # mean should not be calculated on swap before phase correction
+for oi in objOis: # mean should not be calculated on swap before phase correction
     if (GO_FAST):
         printinf("Averaging file {}".format(oi.filename))
         oi.visOi.recenterPhase(oi.sObjX, oi.sObjY)
@@ -205,7 +179,7 @@ if REDUCTION == "astrored":
     for c in range(oi.visOi.nchannel):
         wFt[c, :] = range(oi.visOi.nwavFt)
 
-# calculate the reference visibility for each OB
+# retrieve the reference visibility for each OB
 printinf("Retrieving visibility references from fits files")
 visRefs = [oi.visOi.visRef.mean(axis=0)*0 for oi in objOis]
 for k in range(len(objOis)):
@@ -367,22 +341,24 @@ if not(FIGDIR is None):
     ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
     plt.axis("equal")
     plt.savefig(FIGDIR+"/solution.pdf")
- 
-    ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
-    ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
-    plt.axis("equal")
-    plt.savefig(FIGDIR+"/solution_local.pdf")
-   
+    
 if dargs['save_residuals']:
+    np.save(FIGDIR+"/"+"wav.npy", w[0, :])    
     for k in range(len(objOis)):
         oi = objOis[k]
         name = oi.filename.split('/')[-1].split('.fits')[0]
-        visPla = oi.visOi.visRef - oi.visOi.bestFitStar
-        visRes = np.ma.masked_array(oi.visOi.visRef - oi.visOi.bestFit, oi.visOi.flag).data
-        visResMask = np.ma.masked_array(oi.visOi.visRef - oi.visOi.bestFit, oi.visOi.flag).mask
-        np.save(FIGDIR+"/"+name+"_residuals.npy", visRes)
-        np.save(FIGDIR+"/"+name+"_planet.npy", visPla)        
-        np.save(FIGDIR+"/"+name+"_mask.npy", visResMask)    
+        visRef = oi.visOi.visRef
+        visFitStar = bestFitStars[k]
+        visFit = bestFits[k]
+        flags = oi.visOi.flag
+        visFt = oi.visOi.visDataFt        
+#        visResMask = np.ma.masked_array(oi.visOi.visRef - oi.visOi.bestFit, oi.visOi.flag).mask
+        np.save(FIGDIR+"/"+name+"_ref.npy", visRef)
+        np.save(FIGDIR+"/"+name+"_fit.npy", visFit)
+        np.save(FIGDIR+"/"+name+"_starfit.npy", visFitStar)
+        np.save(FIGDIR+"/"+name+"_flags.npy", flags)
+        np.save(FIGDIR+"/"+name+"_ft.npy", visFt)                                
+#        np.save(FIGDIR+"/"+name+"_mask.npy", visResMask)    
 
 fig = plt.figure()
 for k in range(len(objOis)):

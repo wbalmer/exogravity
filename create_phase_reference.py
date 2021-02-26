@@ -74,6 +74,9 @@ else:
 EXTENSION = cfg["general"]["extension"]
 REDUCTION = cfg["general"]["reduction"]
 
+PHASEREF_ARCLENGTH_THRESHOLD = cfg["general"]["phaseref_arclength_threshold"]
+FT_FLUX_THRESHOLD = cfg["general"]["ft_flux_threshold"]
+
 # OVERWRITE SOME OF THE CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
 if "figdir" in dargs.keys():
     FIGDIR = dargs["figdir"] # bypass value from config file
@@ -144,7 +147,7 @@ for filename in SWAP_FILES:
 
 if REDUCTION == "astrored":
     # flag points based on FT value and phaseRef arclength
-    ftThresholdStar = np.array([np.abs(oi.visOi.visDataFt).mean() for oi in starOis]).mean()/5.0    
+    ftThresholdStar = cfg["general"]["ftOnStarMeanFlux"]*FT_FLUX_THRESHOLD
     for oi in starOis:
         filter_ftflux(oi, ftThresholdStar)             
         

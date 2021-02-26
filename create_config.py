@@ -183,6 +183,8 @@ for k in range(len(datafiles)):
     filename = datafiles[k]
     printinf("Loading "+filename)
     oi = gravity.GravityOiFits(filename)
+    oi.visOi = gravity.VisOiFits(filename, reduction = "astrored", mode = "dualfield", extension = dargs["extension"])
+    oi.visOi.scaleVisibilities(1.0/oi.dit)
     d = (oi.sObjX**2+oi.sObjY**2 )**0.5
     msg = "Target is {}; Fiber distance is {:.2f} mas. ".format(oi.target, d)
     if not(dargs['target'] is None):
@@ -192,7 +194,6 @@ for k in range(len(datafiles)):
     if d < 10:
         printinf(msg+"Assuming file to be on star.")
         starOis.append(oi)
-#        objOis.append(oi)        
     elif oi.target == dargs['swap_target']:
         printinf(msg+"Target is {}. This is a SWAP!".format(oi.target))
         swapOis.append(oi)
@@ -239,7 +240,8 @@ general = {"datadir": dargs["datadir"],
            "star_diameter": float(dargs["star_diameter"]),
            "phaseref_arclength_threshold": float(dargs["phaseref_arclength_threshold"]),
            "ft_flux_threshold": float(dargs["ft_flux_threshold"]),                                 
-           "reduce": ["p"+str(j) for j in range(len(objOis))]}
+           "reduce": ["p"+str(j) for j in range(len(objOis))],
+           }
 
 planet_files = {}
 for k in range(len(objOis)):
@@ -250,6 +252,7 @@ for k in range(len(objOis)):
          "mjd": oi.mjd,
          "sObjX": oi.sObjX,
          "sObjY": oi.sObjY,
+         "ftMeanFlux": float(np.abs(oi.visOi.visDataFt).mean())
      }
     if dargs["calib_strategy"].lower() == "nearest":
         d["star_indices"] = ["s"+str(j) for j in [starOis.index(oiBefore), starOis.index(oiAfter)]]
@@ -265,7 +268,8 @@ for k in range(len(starOis)):
     d = {"filename": oi.filename.split(dargs["datadir"])[1],
          "mjd": oi.mjd,
          "sObjX": oi.sObjX,
-         "sObjY": oi.sObjY
+         "sObjY": oi.sObjY,
+         "ftMeanFlux": float(np.abs(oi.visOi.visDataFt).mean())
      }
     star_files["s"+str(k)] = d
 
@@ -284,14 +288,17 @@ for k in range(len(swapOis)):
          "mjd": oi.mjd,
          "sObjX": oi.sObjX,
          "sObjY": oi.sObjY,
+         "ftMeanFlux": float(np.abs(oi.visOi.visDataFt).mean())/oi.dit         
      }         
     swap_files["w"+str(k)] = d
 
-
+general["ftOnStarMeanFlux"] = float(np.mean(np.array([star_files[key]["ftMeanFlux"] for key in star_files.keys()])))
+general["ftOnPlanetMeanFlux"] = float(np.mean(np.array([planet_files[key]["ftMeanFlux"] for key in planet_files.keys()])))
+    
 cfg = {"general": general,
        "planet_ois": planet_files,
        "star_ois": star_files,
-       "swap_ois": swap_files
+       "swap_ois": swap_files 
    }
 
 f = open(dargs["output"], "w")
