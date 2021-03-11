@@ -79,10 +79,13 @@ TZ[-1] = (wav[-1] - wav[-2])/2.0
 fluxTot = np.dot(TZ, (flux*eso_filt_interp).T)/0.36 # 0.36 is the width of the filter
 fluxCov_filt = np.dot( np.dot(np.diag(eso_filt_interp), fluxCov), np.diag(eso_filt_interp) )
 fluxTotErr = np.sqrt( np.dot( np.dot(TZ, fluxCov_filt), TZ.T ) )/0.36
+contrastTot = np.dot(TZ, (contrast*eso_filt_interp).T)/0.36 # 0.36 is the width of the filter
 mag_k = -2.5*np.log10(fluxTot/eso_zp)
 mag_k_min = -2.5*np.log10((fluxTot+fluxTotErr)/eso_zp)
 mag_k_max = -2.5*np.log10((fluxTot-fluxTotErr)/eso_zp)
+mag_contrast = -2.5*np.log10(contrastTot)
 print("K-band magnitude: {:.3f} [{:.3f}, {:.3f}]".format(mag_k, mag_k_min, mag_k_max))
+print("K-band contrast: {:.3f}".format(mag_contrast))
 
 
 # plot

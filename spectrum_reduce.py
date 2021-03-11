@@ -224,7 +224,7 @@ for k in range(len(objOis)):
 # create projector matrices
 for k in range(len(objOis)):
     oi = objOis[k]
-    printinf("Create projector matrices (p_matrices) ({}/{})".format(k, len(objOis)))
+    printinf("Create projector matrices (p_matrices) ({}/{})".format(k+1, len(objOis)))
     # calculate the projector
     wav = oi.wav*1e6
     vectors = np.zeros([STAR_ORDER+1, oi.nwav], 'complex64')

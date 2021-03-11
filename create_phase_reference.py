@@ -163,6 +163,7 @@ for k in range(len(objOis)):
         starOis_ind = [soi.filename for soi in starOis].index(DATA_DIR+cfg["star_ois"][ind]["filename"]) 
         soi = starOis[starOis_ind]
         visRef = visRef+soi.visOi.visRef.mean(axis = 0)
+#        ampRef = ampRef+soi.fluxOi.flux.mean(axis = 0).mean(axis = 0)#np.abs(soi.visOi.visRef.mean(axis = 0))
         ampRef = ampRef+np.abs(soi.visOi.visRef.mean(axis = 0))
     ###===### 
 #    visRef = np.zeros([oi.visOi.nchannel, oi.nwav])
@@ -172,7 +173,7 @@ for k in range(len(objOis)):
     ###===###
 #    visRefs[k] = ampRef/len(cfg["planet_ois"][planet_ind]["star_indices"])*np.exp(1j*np.angle(visRef/len(objOis)))#/len(cfg["planet_ois"][planet_ind]["star_indices"])))#/len(starOis))) ###===###
     visRefs[k] = ampRef/len(cfg["planet_ois"][planet_ind]["star_indices"])*np.exp(1j*np.angle(visRef/len(cfg["planet_ois"][planet_ind]["star_indices"])))#/len(starOis))) ###===###     
-
+    
 # in DF_SWAP mode, thephase reference of the star cannot be used. We need to extract the phase ref from the SWAP observations
 if PHASEREF_MODE == "DF_SWAP":
     printinf("DF_SWAP mode set.")
@@ -182,7 +183,7 @@ if PHASEREF_MODE == "DF_SWAP":
     # otherwise we can default to the fiber separation value
     for k in range(len(swapOis)):
         oi = swapOis[k]
-        key = cfg["swap_ois"].keys()[k] # the corresponding key in the config file
+        key = list(cfg["swap_ois"].keys())[k] # the corresponding key in the config file
         if (not("astrometric_solution" in cfg["swap_ois"][key])):
             printwar("astrometric_solution not provided for swap {:d}. Defaulting to fiber position RA={:.2f}, DEC={:.2f}".format(k, oi.sObjX, oi.sObjY))
             swap_ra = oi.sObjX
@@ -213,7 +214,7 @@ if PHASEREF_MODE == "DF_SWAP":
     correction = unwrapped - testCase
     phaseRef = phaseRef - correction
     # for convenience, we store this ref in visRef angle, getting rid of the useless values from the star
-    visRefs = [np.abs(visRef)*np.exp(1j*phaseRef) for visRef in visRefs]
+    visRefs = [2*np.abs(visRef)*np.exp(1j*phaseRef) for visRef in visRefs] # factor 2 because the beamspliter is used for on-star observations
 
 # SAVE VISREF IN THE FITS FILE
 for k in range(len(objOis)):

@@ -96,6 +96,7 @@ REDUCTION = cfg["general"]["reduction"]
 # FILTER DATA
 PHASEREF_ARCLENGTH_THRESHOLD = cfg["general"]["phaseref_arclength_threshold"]
 FT_FLUX_THRESHOLD = cfg["general"]["ft_flux_threshold"]
+IGNORE_BASELINES = cfg["general"]["ignore_baselines"]
 
 # OVERWRITE SOME OF THE CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
 if "gofast" in dargs.keys():
@@ -128,7 +129,7 @@ STAR_FILES = [DATA_DIR+cfg["star_ois"][k]["filename"] for k in star_indices]
 
 # read the contrast file if given, otherwise simply set it to 1
 if CONTRAST_FILE is None:
-    contrast = 1
+    contrast_data = 1
 elif CONTRAST_FILE.split('.')[-1].lower() in ["fit", "fits"]:
     contrast_wav, dummy, dummy2, contrast_data, dummy3 = loadFitsSpectrum(CONTRAST_FILE)
 else:
@@ -149,7 +150,7 @@ for filename in PLANET_FILES:
     else:
         printerr("Unknonwn reduction type '{}'.".format(REDUCTION))        
     objOis.append(oi)
-    
+
 # filter data
 if REDUCTION == "astrored":
     # flag points based on FT value and phaseRef arclength
@@ -157,7 +158,14 @@ if REDUCTION == "astrored":
     for oi in objOis:
         filter_ftflux(oi, ftThresholdPlanet)
         if PHASEREF_ARCLENGTH_THRESHOLD > 0:
-            filter_phaseref_arclength(oi, PHASEREF_ARCLENGTH_THRESHOLD)            
+            filter_phaseref_arclength(oi, PHASEREF_ARCLENGTH_THRESHOLD)
+        # explicitly set ignored baselines to NAN
+        if len(IGNORE_BASELINES)>0:
+            a = range(oi.visOi.ndit)
+            b = IGNORE_BASELINES
+            (a, b, c) = np.meshgrid(a, b, range(oi.nwav))
+            oi.visOi.flagPoints((a, b, c))
+            printinf("Ignoring some baselines in file {}".format(oi.filename))
 
 # replace data by the mean over all DITs if go_fast has been requested in the config file
 printinf("gofast flag is set. Averaging over DITs")
@@ -166,14 +174,14 @@ for oi in objOis: # mean should not be calculated on swap before phase correctio
         printinf("Averaging file {}".format(oi.filename))
         oi.visOi.recenterPhase(oi.sObjX, oi.sObjY)
         oi.computeMean()
-        oi.visOi.recenterPhase(-oi.sObjX, -oi.sObjY)        
+        oi.visOi.recenterPhase(-oi.sObjX, -oi.sObjY)
 
 # calculate the very useful w for plotting
 oi = objOis[0]
 w = np.zeros([oi.visOi.nchannel, oi.nwav])
 for c in range(oi.visOi.nchannel):
     w[c, :] = oi.wav*1e6
-
+    
 if REDUCTION == "astrored":
     wFt = np.zeros([oi.visOi.nchannel, oi.visOi.nwavFt])
     for c in range(oi.visOi.nchannel):
@@ -187,7 +195,7 @@ for k in range(len(objOis)):
     try:
         visRefs[k] = fits.getdata(oi.filename, "EXOGRAV_VISREF").field("EXOGRAV_VISREF")
     except:
-        printerr("Cannot find visibility reference (EXOGRAV_VISREF) in file {}".format(oi.filename))
+        printerr("Cannot find visibility reference (EXOGRAV_VISREF) in file {}.".format(oi.filename))
     
 # subtract the reference phase to each OB
 printinf("Subtracting phase reference to each planet OI.")
@@ -208,14 +216,16 @@ decBests = np.zeros(len(objOis))
 # store the results of the fit in sky and opd coordinates
 astroFits = []
 opdFits = []
+bestParams = []
 
 # calculate chi2Maps using the fitAstrometry method, which itself call fitVisRefOpd                                                                                                                  
 for k in range(len(objOis)):
     oi = objOis[k]
     printinf("Calculating grid for file: {}".format(oi.filename))
-    fitAstro, fitOpd = oi.visOi.fitVisRefAstrometry(raValues, decValues, nopd=N_OPD, poly_order = STAR_ORDER, poly_spectrum = np.abs(visRefs[k]), target_spectrum = np.abs(visRefs[k]), return_opd_fit = True)
+    fitAstro, fitOpd = oi.visOi.fitVisRefAstrometry(raValues, decValues, nopd=N_OPD, poly_order = STAR_ORDER, poly_spectrum = np.abs(visRefs[k]), target_spectrum = contrast_data*np.abs(visRefs[k]), return_opd_fit = True, ignore_baselines = IGNORE_BASELINES)
     chi2Maps[k, :, :] = np.nansum(fitAstro["map"], axis = 0)
     bestFits.append(fitAstro["fit"])
+    bestParams.append(fitAstro["params"])
     raBests[k] = fitAstro["best"][0]
     decBests[k] = fitAstro["best"][1]
     astroFits.append(fitAstro)
@@ -255,13 +265,6 @@ for k in range(len(objOis)):
     if (raBests_local[k] != raBests[k]) or (decBests_local[k] != decBests[k]):
         printwar("Local minimum for file {} is different from global minimum".format(objOis[k].filename))
     
-# show astrometric total map
-plt.figure()
-plt.imshow(chi2Maps[0].T, origin = "lower", extent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)])
-plt.plot(raBest, decBest, "+C1")
-plt.plot(raValues[i], decValues[j], "+C2")
-
-
 cov = np.cov(raBests, decBests)
 printinf("RA: {:.2f}+-{:.3f} mas".format(np.mean(raBests), cov[0, 0]**0.5))
 printinf("DEC: {:.2f}+-{:.3f} mas".format(np.mean(decBests), cov[1, 1]**0.5))
@@ -282,13 +285,18 @@ else:
     f.write(yaml.safe_dump(cfg, default_flow_style = False)) 
 f.close()
 
-plt.figure()
-plt.imshow(chi2Map.T, origin = "lower", extent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)])
-plt.xlabel("$\Delta{}\mathrm{RA}$ (mas)")
-plt.ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
-plt.savefig(FIGDIR+"/astrometry_combined"+str(k)+".pdf")                
-
 if not(FIGDIR is None):
+    plt.figure()
+    plt.imshow(chi2Map.T, origin = "lower", extent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)])
+    plt.xlabel("$\Delta{}\mathrm{RA}$ (mas)")
+    plt.ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
+    plt.savefig(FIGDIR+"/astrometry_combined.pdf")                
+
+    # UV plot
+    gPlot.uvMap(objOis[0].visOi.uCoord[0, :, :], objOis[0].visOi.vCoord[0, :, :], targetCoord=(raBest, decBest), legend = objOis[0].basenames, symmetric = True)
+    plt.savefig(FIGDIR+"/uvmap.pdf")
+    plt.close()
+    
     for k in range(len(objOis)):
         oi = objOis[k]
         fig = plt.figure(figsize=(10, 8))
@@ -352,14 +360,16 @@ if dargs['save_residuals']:
         visFit = bestFits[k]
         flags = oi.visOi.flag
         visFt = oi.visOi.visDataFt        
-#        visResMask = np.ma.masked_array(oi.visOi.visRef - oi.visOi.bestFit, oi.visOi.flag).mask
         np.save(FIGDIR+"/"+name+"_ref.npy", visRef)
         np.save(FIGDIR+"/"+name+"_fit.npy", visFit)
         np.save(FIGDIR+"/"+name+"_starfit.npy", visFitStar)
         np.save(FIGDIR+"/"+name+"_flags.npy", flags)
         np.save(FIGDIR+"/"+name+"_ft.npy", visFt)                                
-#        np.save(FIGDIR+"/"+name+"_mask.npy", visResMask)    
 
+stop()
+
+
+# A large array to store the coefficients of the fits
 fig = plt.figure()
 for k in range(len(objOis)):
     opdFit = opdFits[k]
@@ -371,7 +381,6 @@ for k in range(len(objOis)):
         gPlot.baselinePlot(values, params[0, :, :, -1], fig = fig)
 plt.tight_layout()
 
-stop()
 
 for k in range(len(objOis)):
     fig = plt.figure()    

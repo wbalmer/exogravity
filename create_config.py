@@ -158,7 +158,10 @@ if not("phaseref_arclength_threshold" in dargs.keys()):
     dargs["phaseref_arclength_threshold"] = 2.5
 if not("ft_flux_threshold" in dargs.keys()):
     printwar("ft_flux_threshold not given. Using default value of 0.2")
-    dargs["ft_flux_threshold"] = 0.2    
+    dargs["ft_flux_threshold"] = 0.2
+if not("ignore_baselines" in dargs.keys()):
+    printwar("By default, no baseline will be ignored. Add baseline indices to 'ignore_baselines' in the yml to ignore some baselines.")
+    dargs["ignore_baselines"] = []
 
 
     
@@ -241,6 +244,7 @@ general = {"datadir": dargs["datadir"],
            "phaseref_arclength_threshold": float(dargs["phaseref_arclength_threshold"]),
            "ft_flux_threshold": float(dargs["ft_flux_threshold"]),                                 
            "reduce": ["p"+str(j) for j in range(len(objOis))],
+           "ignore_baselines": dargs["ignore_baselines"],
            }
 
 planet_files = {}
