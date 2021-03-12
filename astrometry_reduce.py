@@ -218,7 +218,8 @@ astroFits = []
 opdFits = []
 bestParams = []
 
-# calculate chi2Maps using the fitAstrometry method, which itself call fitVisRefOpd                                                                                                                  
+# calculate chi2Maps using the fitAstrometry method, which itself call fitVisRefOpd
+"""
 for k in range(len(objOis)):
     oi = objOis[k]
     printinf("Calculating grid for file: {}".format(oi.filename))
@@ -264,7 +265,162 @@ for k in range(len(objOis)):
     decBests_local[k] = decValues[j]
     if (raBests_local[k] != raBests[k]) or (decBests_local[k] != decBests[k]):
         printwar("Local minimum for file {} is different from global minimum".format(objOis[k].filename))
+"""
+
+# create projector matrices
+for k in range(len(objOis)):
+    oi = objOis[k]
+    printinf("Create projector matrices (p_matrices) ({}/{})".format(k+1, len(objOis)))
+    # calculate the projector
+    wav = oi.wav*1e6
+    vectors = np.zeros([STAR_ORDER+1, oi.nwav], 'complex64')
+    thisVisRef = visRefs[k]
+    thisAmpRef = np.abs(thisVisRef)
+    oi.visOi.p_matrices = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav, oi.nwav], 'complex64')
+    P = np.zeros([oi.visOi.nchannel, oi.nwav, oi.nwav], 'complex64')
+    for dit in range(oi.visOi.ndit): # the loop of DIT number is necessary because of bad points mgmt (bad_indices depends on dit)
+        for c in range(oi.visOi.nchannel):
+            for j in range(STAR_ORDER+1):
+                vectors[j, :] = np.abs(thisAmpRef[c, :])*(wav-np.mean(wav))**j # pourquoi ampRef et pas visRef ?
+            bad_indices = np.where(oi.visOi.flag[dit, c, :])
+            vectors[:, bad_indices] = 0
+            for l in range(oi.nwav):
+                x = np.zeros(oi.nwav)
+                x[l] = 1
+                coeffs = np.linalg.lstsq(vectors.T, x, rcond=-1)[0]
+                P[c, :, l] = x - np.dot(vectors.T, coeffs)
+        oi.visOi.p_matrices[dit, :, :, :] = P
+        
+printinf("Starting calculation of H matrices")
+for k in range(len(objOis)):
+    printinf("Calculating H ({:d}/{:d})".format(k+1, len(objOis)))
+    oi = objOis[k]
+    oi.visOi.h_matrices = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.visOi.nwav, oi.visOi.nwav], 'complex64')
+    oi.visOi.m = np.zeros([oi.visOi.ndit, oi.visOi.nchannel])
+    for dit in range(oi.visOi.ndit):
+        for c in range(oi.visOi.nchannel):
+            (G, d, H) = np.linalg.svd(oi.visOi.p_matrices[dit, c, :, :]) # scipy faster but different result?
+            D = np.diag(d)
+            oi.visOi.h_matrices[dit, c, :, :] = H
+            m = int(np.sum(d))
+            oi.visOi.m[dit, c] = m
+        
+# project visibilities
+for k in range(len(objOis)):
+    oi = objOis[k]
+    printinf("Projecting visibilities ({}/{})".format(k+1, len(objOis)))    
+    oi.visOi.visProj = [[[] for c in range(oi.visOi.nchannel)] for dit in range(oi.visOi.ndit)]
+    for dit in range(oi.visOi.ndit):
+        for c in range(oi.visOi.nchannel):
+            m = int(oi.visOi.m[dit, c])
+            oi.visOi.visProj[dit][c] = np.dot(oi.visOi.h_matrices[dit, c, 0:m, :], oi.visOi.visRef[dit, c, :])
+
+# invert covariance matrices
+for k in range(len(objOis)):
+    oi = objOis[k]
+    printinf("Inverting covariance matrices ({}/{})".format(k+1, len(objOis)))        
+    oi.visOi.W2inv = [[[] for c in range(oi.visOi.nchannel)] for dit in range(oi.visOi.ndit)]
+    for dit in range(oi.visOi.ndit): 
+        for c in range(oi.visOi.nchannel):
+            m = int(oi.visOi.m[dit, c])                   
+            # propagate projection of visibilities on errors
+            H_sp = scipy.sparse.csc_matrix(oi.visOi.h_matrices[dit, c, 0:m, :])
+            W_sp = scipy.sparse.csr_matrix(oi.visOi.visRefCov[dit, c].todense())
+            Z_sp = scipy.sparse.csr_matrix(oi.visOi.visRefPcov[dit, c].todense())
+            W = np.dot((H_sp.dot(W_sp)).todense(), cs.adj(H_sp).todense())
+            Z = np.dot((H_sp.dot(Z_sp)).todense(), H_sp.T.todense())
+            W2 = cs.extended_covariance(W, Z)#.real
+            oi.visOi.W2inv[dit][c] = np.linalg.inv(W2)
+            # invert the covariance matrix
+            #ZZ, _ = lapack.dpotrf(W2)
+            #T, info = lapack.dpotri(ZZ)
+            #oi.visOi.W2inv[dit][c] = np.triu(T) + np.triu(T, k=1).T
+
+raValues = np.linspace(RA_LIM[0], RA_LIM[1], N_RA)
+decValue = np.linspace(DEC_LIM[0], DEC_LIM[1], N_DEC)
+
+ra = raValues.mean()
+dec = decValues.mean()
+
+# prepare array
+phi_values = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], 'complex')
+# calculate As and Bs
+chi2Maps = np.zeros([N_RA, N_DEC])
+phiBest = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex")
+chi2Best = np.inf
+for k in range(len(objOis)):
+    oi = objOis[k]
+    printinf("Calculating chi2Map for file {}".format(oi.filename))
+    for i in range(N_RA):
+        for j in range(N_DEC):
+            ra = raValues[i]
+            dec = decValues[j]
+            A, B = 0., 0.
+            kappa2 = 0
+            this_u = (ra*oi.visOi.uCoord + dec*oi.visOi.vCoord)/1e7
+            phase = 2*np.pi*this_u*1e7/3600.0/360.0/1000.0*2*np.pi
+            phi = np.exp(-1j*phase)*np.abs(visRefs[k])
+            phiProj = [[[] for c in range(oi.visOi.nchannel)] for dit in range(oi.visOi.ndit)]
+            for dit in range(oi.visOi.ndit):
+                for c in range(oi.visOi.nchannel):
+                    m = int(oi.visOi.m[dit, c])
+                    phiProj[dit][c] = np.dot(oi.visOi.h_matrices[dit, c, 0:m, :], phi[dit, c, :])
+            for dit in range(oi.visOi.ndit):
+                for c in range(oi.visOi.nchannel):
+                    phiProj2 = cs.conj_extended(phiProj[dit][c])
+                    PV2 = cs.conj_extended(oi.visOi.visProj[dit][c])            
+                    Q = np.dot(cs.adj(phiProj2), oi.visOi.W2inv[dit][c])
+                    A = A+np.real(np.dot(Q, PV2))
+                    B = B+np.real(np.dot(Q, phiProj2))
+            kappa = A/B
+            chi2Maps[i, j] = -A**2/B
+            if chi2Maps[i, j] < chi2Best:
+                phiBest = kappa*phi
+                chi2Best = chi2Maps[i, j]
+
+plt.figure()
+plt.imshow(chi2Maps.T, origin = "lower", extent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)], interpolation = "None")
+
+bestStarFits = []
+for k in range(len(objOis)):
+    oi = objOis[k]
+    bestStarFit = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex")
+    for dit in range(oi.visOi.ndit):
+        for c in range(oi.visOi.nchannel):
+            bestStarFit[dit, c, :] = oi.visOi.visRef[dit, c, :] - np.dot(oi.visOi.p_matrices[dit, c, :, :], oi.visOi.visRef[dit, c, :])
+    bestStarFits.append(bestStarFit)
+
     
+fig = plt.figure()
+gPlot.reImPlot(w, (oi.visOi.visRef-bestStarFits[0]).mean(axis = 0), subtitles = oi.basenames, fig = fig)
+#gPlot.reImPlot(w, oi.visOi.visProj[0, :, :], fig = fig)
+gPlot.reImPlot(w, phiBest.mean(axis = 0), fig = fig)
+#gPlot.reImPlot(w, bestStarFits[0][0, :, :], fig = fig)
+
+
+stop()
+        
+for dit in dits:
+    for c in range(self.nchannel):
+        # filter data points based on flag status
+        bad_indices = np.where(self.flag[dit, c, :])
+        # if there are not enough valid points to invert the problem, we put chi2 at nan and skip step
+        if (self.nwav - len(bad_indices[0])) < (2*poly_order+2):
+            opdChi2Map[dit, c, :] = float("nan")
+            continue
+        visRefNoBad = np.copy(self.visRef[dit, c, :])
+        visRefNoBad[bad_indices] = 0
+        # retrieve cov and pcov and build to complex_extended covar
+        W = self.visRefCov[dit, c].todense()
+        Z = self.visRefPcov[dit, c].todense()
+        W2 = extended_covariance(W, Z).real
+        # the next objective is to calculate W2inv * A2
+        # we can either invert W2 completely and the multiply or
+        # avoid inversion and calculate the product little by little. The inversion is numpy stuff and is
+
+
+
+
 cov = np.cov(raBests, decBests)
 printinf("RA: {:.2f}+-{:.3f} mas".format(np.mean(raBests), cov[0, 0]**0.5))
 printinf("DEC: {:.2f}+-{:.3f} mas".format(np.mean(decBests), cov[1, 1]**0.5))
@@ -284,6 +440,7 @@ if RUAMEL:
 else:
     f.write(yaml.safe_dump(cfg, default_flow_style = False)) 
 f.close()
+
 
 if not(FIGDIR is None):
     plt.figure()
@@ -366,8 +523,8 @@ if dargs['save_residuals']:
         np.save(FIGDIR+"/"+name+"_flags.npy", flags)
         np.save(FIGDIR+"/"+name+"_ft.npy", visFt)                                
 
+gPlot.baselinePlot(w[:, 0:8], fitAstro["params"].transpose(2, 1, 0)[-1, :, :], subtitles=oi.basenames)
 stop()
-
 
 # A large array to store the coefficients of the fits
 fig = plt.figure()
@@ -380,6 +537,8 @@ for k in range(len(objOis)):
     else:
         gPlot.baselinePlot(values, params[0, :, :, -1], fig = fig)
 plt.tight_layout()
+
+stop()
 
 
 for k in range(len(objOis)):
