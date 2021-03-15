@@ -129,7 +129,7 @@ STAR_FILES = [DATA_DIR+cfg["star_ois"][k]["filename"] for k in star_indices]
 
 # read the contrast file if given, otherwise simply set it to 1
 if CONTRAST_FILE is None:
-    contrast_data = 1
+    contrast_data = None
 elif CONTRAST_FILE.split('.')[-1].lower() in ["fit", "fits"]:
     contrast_wav, dummy, dummy2, contrast_data, dummy3 = loadFitsSpectrum(CONTRAST_FILE)
 else:
@@ -300,11 +300,15 @@ for k in range(len(objOis)):
             kappa2 = 0
             this_u = (ra*oi.visOi.uCoord + dec*oi.visOi.vCoord)/1e7
             phase = 2*np.pi*this_u*1e7/3600.0/360.0/1000.0*2*np.pi
-            phi = np.exp(-1j*phase)*np.abs(visRefs[k])
+            phi = np.exp(-1j*phase)*np.abs(visRefs[k])            
+            if not(contrast_data is None):
+                phi = phi*contrast_data
             phiProj = [[[] for c in range(oi.visOi.nchannel)] for dit in range(oi.visOi.ndit)]
             for dit in range(oi.visOi.ndit):
                 for c in range(oi.visOi.nchannel):
                     m = int(oi.visOi.m[dit, c])
+                    bad_indices = np.where(oi.visOi.flag[dit, c, :])
+                    phi[dit, c, bad_indices] = 0
                     phiProj[dit][c] = np.dot(oi.visOi.h_matrices[dit, c, 0:m, :], phi[dit, c, :])
             for dit in range(oi.visOi.ndit):
                 for c in range(oi.visOi.nchannel):
@@ -314,7 +318,10 @@ for k in range(len(objOis)):
                     A = A+np.real(np.dot(Q, PV2))
                     B = B+np.real(np.dot(Q, phiProj2))
             kappa = A/B
-            chi2Maps[k, i, j] = -A**2/B
+            chi2Maps[k, i, j] = -A**2/B # constant term was removed in this formula
+            if kappa < 0: # negative contrast if forbidden
+                kappa = 0
+                chi2Maps[k, i, j] = 0 # 0 is the reference chi2 in the calculations, since constant term of the likelihood was removed
             if chi2Maps[k, i, j] < chi2Best:
                 phiBest = kappa*phi
                 chi2Best = chi2Maps[k, i, j]
@@ -352,6 +359,39 @@ for k in range(len(objOis)):
         printwar("Local minimum for file {} is different from global minimum".format(objOis[k].filename))
 
 
+# look for best opd on each baseline
+bestOpds = np.zeros([len(objOis), objOis[0].visOi.nchannel])
+for k in range(len(objOis)):
+    oi = objOis[k]
+    printwar("Looking for best OPD on each baseline for file {} is different from global minimum".format(objOis[k].filename))    
+    opdLimits = np.zeros([oi.visOi.nchannel, 2]) # min and max for each channel
+    opdLimits[:, 0] = +np.inf
+    opdLimits[:, 1] = -np.inf
+    # we'll go tgrough all the values and find the largets and smallest opd
+    for ra in raValues:
+        for dec in decValues:
+            opd = oi.visOi.getOpd(ra, dec) # opd[dit, c] is opd on channel c for dit dit corresponding to the ra/dec
+            for c in range(oi.visOi.nchannel):
+                if np.min(opd[:, c]) < opdLimits[c, 0]: # if bigger than current biggest we keep it
+                    opdLimits[c, 0] = np.min(opd[:, c])
+                if np.max(opd[:, c]) > opdLimits[c, 1]: # if smaller than current smallest we keep it
+                    opdLimits[c, 1] = np.max(opd[:, c])
+    # now we can create the array using request nopd
+    opdRanges = np.zeros([oi.visOi.nchannel, N_OPD])
+    for c in range(oi.visOi.nchannel):
+        opdRanges[c, :] = np.linspace(opdLimits[c, 0], opdLimits[c, 1], N_OPD)
+    # calculate the opd map
+    opdFit = oi.visOi.fitVisRefOpd(opdRanges, target_spectrum = contrast_data, poly_spectrum = np.abs(visRefs[k]), poly_order = STAR_ORDER, no_inv = True)
+    bestOpds[k, :] = opdFit["best"].mean(axis = 0)
+
+decOpdBaselines = np.zeros([len(objOis), objOis[0].visOi.nchannel, 3, N_RA])
+for k in range(len(objOis)):
+    oi = objOis[k]
+    wavref = 1e6*np.mean(oi.fluxOi.flux.mean(axis = 0).mean(axis = 0)*oi.wav)/np.mean(oi.fluxOi.flux) # flux weighted average wavelength in microns
+    for c in range(oi.visOi.nchannel):
+        for j in range(np.shape(decOpdBaselines)[2]):
+            decOpdBaselines[k, c, j, :] = ((bestOpds[k, c]+(j-np.shape(decOpdBaselines)[2]//2)*wavref)/1e6*1000.0*3600.0*360.0/2.0/np.pi - raValues*oi.visOi.u[:, c].mean(axis = 0))/oi.visOi.v[:, c].mean(axis = 0)
+        
 cov = np.cov(raBests, decBests)
 printinf("RA: {:.2f}+-{:.3f} mas".format(np.mean(raBests), cov[0, 0]**0.5))
 printinf("DEC: {:.2f}+-{:.3f} mas".format(np.mean(decBests), cov[1, 1]**0.5))
@@ -376,17 +416,21 @@ f.close()
 
 
 if not(FIGDIR is None):
+    dRa = raValues[1] - raValues[0]
+    dDec = decValues[1] - decValues[0]    
+    mapExtent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)]
+    
     plt.figure()
-    plt.imshow(chi2Map.T, origin = "lower", extent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)])
+    plt.imshow(chi2Map.T, origin = "lower", extent = mapExtent)
     plt.xlabel("$\Delta{}\mathrm{RA}$ (mas)")
     plt.ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
-    plt.savefig(FIGDIR+"/astrometry_combined.pdf")                
+    plt.savefig(FIGDIR+"/astrometry_combined.pdf")
 
     # UV plot
+    plt.figure()
     gPlot.uvMap(objOis[0].visOi.uCoord[0, :, :], objOis[0].visOi.vCoord[0, :, :], targetCoord=(raBest, decBest), legend = objOis[0].basenames, symmetric = True)
     plt.savefig(FIGDIR+"/uvmap.pdf")
-    plt.close()
-    
+
     for k in range(len(objOis)):
         oi = objOis[k]
         fig = plt.figure(figsize=(10, 8))
@@ -401,15 +445,26 @@ if not(FIGDIR is None):
         plt.savefig(FIGDIR+"/star_fit_"+str(k)+".pdf")                
 
     fig = plt.figure(figsize = (10, 10))
-    n = int(np.ceil(np.sqrt(len(objOis))))
+    n = int(np.ceil(np.sqrt(len(objOis)+1)))
+    ax = fig.add_subplot(n, n, 1)
+    gPlot.uvMap(objOis[0].visOi.uCoord[0, :, :], objOis[0].visOi.vCoord[0, :, :], targetCoord=(raBest, decBest), legend = objOis[0].basenames, symmetric = True, ax = ax, colors = ["C"+str(k) for k in range(6)])
     for k in range(len(objOis)):
-        ax = fig.add_subplot(n, n, k+1)
+        ax = fig.add_subplot(n, n, k+2)
         oi = objOis[k]
         name = oi.filename.split('/')[-1]
-        ax.imshow(chi2Maps[k, :, :].T, origin = "lower", extent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)])
+        ax.imshow(chi2Maps[k, :, :].T, origin = "lower", extent = mapExtent)
         ax.plot(raBests[k], decBests[k], "+C1")
         ax.plot(raBests_local[k], decBests_local[k], "+C2")                 
-        ax.plot(raBest, decBest, "+C3")         
+        ax.plot(raBest, decBest, "+C3")
+        for c in range(oi.visOi.nchannel):
+            if c not in IGNORE_BASELINES:
+                for j in range(np.shape(decOpdBaselines)[2]):
+                    if j == np.shape(decOpdBaselines)[2]//2:
+                        ax.plot(raValues, decOpdBaselines[k, c, j, :], 'C'+str(c)+'-', linewidth=2)
+                    else:
+                        ax.plot(raValues, decOpdBaselines[k, c, j, :], 'C'+str(c)+'--', linewidth=2)                        
+        plt.xlim(mapExtent[0], mapExtent[1])
+        plt.ylim(mapExtent[2], mapExtent[3])
         ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
         ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
         ax.set_title(name)
