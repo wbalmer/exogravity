@@ -186,7 +186,7 @@ for k in range(len(datafiles)):
     filename = datafiles[k]
     printinf("Loading "+filename)
     oi = gravity.GravityOiFits(filename)
-    oi.visOi = gravity.VisOiFits(filename, reduction = "astrored", mode = "dualfield", extension = dargs["extension"])
+    oi.visOi = gravity.VisOiFits(filename, reduction = "astrored", mode = "dualfield", extension = int(dargs["extension"]))
     oi.visOi.scaleVisibilities(1.0/oi.dit)
     d = (oi.sObjX**2+oi.sObjY**2 )**0.5
     msg = "Target is {}; Fiber distance is {:.2f} mas. ".format(oi.target, d)
@@ -206,9 +206,9 @@ for k in range(len(datafiles)):
 
 if ((dargs["ralim"] is None) or (dargs["ralim"] is None)):
     ra = np.mean(np.array([oi.sObjX for oi in objOis]))
-    ralim = [float(ra)-5, float(ra)+5] # get rid of numpy type so that yaml conversion works
+    ralim = [float(ra)-15, float(ra)+15] # get rid of numpy type so that yaml conversion works
     dec = np.mean(np.array([oi.sObjY for oi in objOis]))
-    declim = [float(dec)-5, float(dec)+5]
+    declim = [float(dec)-15, float(dec)+15]
 else:
     ralim = [float(r) for r in dargs["ralim"].split(']')[0].split('[')[1].split(',')]
     declim = [float(r) for r in dargs["declim"].split(']')[0].split('[')[1].split(',')]
@@ -234,6 +234,7 @@ general = {"datadir": dargs["datadir"],
            "reflag": dargs['reflag'],           
            "contrast_file": dargs['contrast_file'],
            "figdir": None,
+           "save_residuals": True,           
            "n_opd": int(dargs["nopd"]),
            "n_ra": int(dargs["nra"]),
            "n_dec": int(dargs["ndec"]),
@@ -250,8 +251,6 @@ general = {"datadir": dargs["datadir"],
 planet_files = {}
 for k in range(len(objOis)):
     oi = objOis[k]
-    oiAfter = oi.getClosestOi(starOis, forceAfter = True)
-    oiBefore = oi.getClosestOi(starOis, forceBefore = True)
     d = {"filename": oi.filename.split(dargs["datadir"])[1],
          "mjd": oi.mjd,
          "sObjX": oi.sObjX,
@@ -259,6 +258,8 @@ for k in range(len(objOis)):
          "ftMeanFlux": float(np.abs(oi.visOi.visDataFt).mean())
      }
     if dargs["calib_strategy"].lower() == "nearest":
+        oiAfter = oi.getClosestOi(starOis, forceAfter = True)
+        oiBefore = oi.getClosestOi(starOis, forceBefore = True)
         d["star_indices"] = ["s"+str(j) for j in [starOis.index(oiBefore), starOis.index(oiAfter)]]
     elif dargs["calib_strategy"].lower() == "all":
         d["star_indices"] = ["s"+str(j) for j in range(len(starOis))]

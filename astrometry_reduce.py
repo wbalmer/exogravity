@@ -63,8 +63,6 @@ for req in REQUIRED_ARGS:
 CONFIG_FILE = dargs["config_file"]
 if not(os.path.isfile(CONFIG_FILE)):
     raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
-if not("save_residuals") in dargs.keys():
-    dargs['save_residuals'] = False
     
 # READ THE CONFIGURATION FILE
 if RUAMEL:
@@ -77,6 +75,7 @@ CONTRAST_FILE = cfg["general"]["contrast_file"]
 NO_INV = cfg["general"]["noinv"]
 GO_FAST = cfg["general"]["gofast"]
 FIGDIR = cfg["general"]["figdir"]
+SAVE_RESIDUALS = cfg["general"]["save_residuals"]
 PLANET_FILES = [DATA_DIR+cfg["planet_ois"][k]["filename"] for k in cfg["general"]["reduce"]] # list of files corresponding to planet exposures
 if not("swap_ois" in cfg.keys()):
     SWAP_FILES = []
@@ -105,6 +104,8 @@ if "noinv" in dargs.keys():
     NO_INV = dargs["noinv"] # bypass value from config file
 if "figdir" in dargs.keys():
     FIGDIR = dargs["figdir"] # bypass value from config file
+if "save_residuals" in dargs.keys():
+    SAVE_RESIDUALS = True # bypass value from config file
 
 # LOAD GRAVITY PLOT is savefig requested
 if not(FIGDIR is None):
@@ -116,7 +117,7 @@ if not(FIGDIR is None):
         printinf("Directory {} was not found and has been created".format(FIGDIR))
 
 # THROW AN ERROR IF save_residuals requested, but no FIGDIR provided
-if dargs['save_residuals'] and (FIGDIR is None):
+if SAVE_RESIDUALS and (FIGDIR is None):
     printerr("save_residuals option requested, but no figdir provided.")
         
 # extract list of useful star ois from the list indicated in the star_indices fields of the config file:
@@ -196,7 +197,7 @@ for k in range(len(objOis)):
         visRefs[k] = fits.getdata(oi.filename, "EXOGRAV_VISREF").field("EXOGRAV_VISREF")
     except:
         printerr("Cannot find visibility reference (EXOGRAV_VISREF) in file {}.".format(oi.filename))
-    
+
 # subtract the reference phase to each OB
 printinf("Subtracting phase reference to each planet OI.")
 for k in range(len(objOis)):
@@ -340,6 +341,13 @@ for k in range(len(objOis)):
             bestFitStar[dit, c, :] = oi.visOi.visRef[dit, c, :] - np.dot(oi.visOi.p_matrices[dit, c, :, :], oi.visOi.visRef[dit, c, :])
     bestFitStars.append(bestFitStar)
 
+# also project the best fit in order to be able to compare it with data
+for k in range(len(objOis)):
+    oi = objOis[k]
+    for dit in range(oi.visOi.ndit):
+        for c in range(oi.visOi.nchannel):
+            bestFits[k][dit, c, :] = np.dot(oi.visOi.p_matrices[dit, c, :, :], bestFits[k][dit, c, :])
+    
 # combine chi2Maps to get best astrometric solution
 chi2Map = np.sum(chi2Maps, axis = 0)
 ind = np.where(chi2Map == np.min(chi2Map))
@@ -381,13 +389,14 @@ for k in range(len(objOis)):
     for c in range(oi.visOi.nchannel):
         opdRanges[c, :] = np.linspace(opdLimits[c, 0], opdLimits[c, 1], N_OPD)
     # calculate the opd map
-    opdFit = oi.visOi.fitVisRefOpd(opdRanges, target_spectrum = contrast_data, poly_spectrum = np.abs(visRefs[k]), poly_order = STAR_ORDER, no_inv = True)
+    opdFit = oi.visOi.fitVisRefOpd(opdRanges, target_spectrum = np.abs(visRefs[k]), poly_spectrum = np.abs(visRefs[k]), poly_order = STAR_ORDER, no_inv = False)
     bestOpds[k, :] = opdFit["best"].mean(axis = 0)
 
 decOpdBaselines = np.zeros([len(objOis), objOis[0].visOi.nchannel, 3, N_RA])
 for k in range(len(objOis)):
     oi = objOis[k]
-    wavref = 1e6*np.mean(oi.fluxOi.flux.mean(axis = 0).mean(axis = 0)*oi.wav)/np.mean(oi.fluxOi.flux) # flux weighted average wavelength in microns
+#    wavref = 1e6*np.mean(oi.fluxOi.flux.mean(axis = 0).mean(axis = 0)*oi.wav)/np.mean(oi.fluxOi.flux) # flux weighted average wavelength in microns
+    wavref = 1e6*np.mean(oi.wav)
     for c in range(oi.visOi.nchannel):
         for j in range(np.shape(decOpdBaselines)[2]):
             decOpdBaselines[k, c, j, :] = ((bestOpds[k, c]+(j-np.shape(decOpdBaselines)[2]//2)*wavref)/1e6*1000.0*3600.0*360.0/2.0/np.pi - raValues*oi.visOi.u[:, c].mean(axis = 0))/oi.visOi.v[:, c].mean(axis = 0)
@@ -416,86 +425,98 @@ f.close()
 
 
 if not(FIGDIR is None):
-    dRa = raValues[1] - raValues[0]
-    dDec = decValues[1] - decValues[0]    
-    mapExtent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)]
+    hdu = fits.PrimaryHDU(chi2Maps.transpose(0, 2, 1))
+    hdu.header["CRPIX1"] = 0.0
+    hdu.header["CRVAL1"] = raValues[0]
+    hdu.header["CDELT1"] = raValues[1] - raValues[0]
+    hdu.header["CRPIX2"] = 0.0
+    hdu.header["CRVAL2"] = decValues[0]
+    hdu.header["CDELT2"] = decValues[1] - decValues[0]
+    hdul = fits.HDUList([hdu])
+    hdul.writeto(FIGDIR+"/chi2Maps.fits", overwrite = True)
     
-    plt.figure()
-    plt.imshow(chi2Map.T, origin = "lower", extent = mapExtent)
-    plt.xlabel("$\Delta{}\mathrm{RA}$ (mas)")
-    plt.ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
-    plt.savefig(FIGDIR+"/astrometry_combined.pdf")
+    from matplotlib.backends.backend_pdf import PdfPages
+    with PdfPages(FIGDIR+"/astrometry_fit_results.pdf") as pdf:
+        dRa = raValues[1] - raValues[0]
+        dDec = decValues[1] - decValues[0]    
+        mapExtent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)]
+    
+        plt.figure()
+        plt.imshow(chi2Map.T, origin = "lower", extent = mapExtent)
+        plt.xlabel("$\Delta{}\mathrm{RA}$ (mas)")
+        plt.ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
+        pdf.savefig()
 
-    # UV plot
-    plt.figure()
-    gPlot.uvMap(objOis[0].visOi.uCoord[0, :, :], objOis[0].visOi.vCoord[0, :, :], targetCoord=(raBest, decBest), legend = objOis[0].basenames, symmetric = True)
-    plt.savefig(FIGDIR+"/uvmap.pdf")
+        # UV plot
+        plt.figure()
+        gPlot.uvMap(objOis[0].visOi.uCoord[0, :, :], objOis[0].visOi.vCoord[0, :, :], targetCoord=(raBest, decBest), legend = objOis[0].basenames, symmetric = True)
+        pdf.savefig()
 
-    for k in range(len(objOis)):
-        oi = objOis[k]
-        fig = plt.figure(figsize=(10, 8))
-        gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.visRef-bestFitStars[k], oi.visOi.flag).mean(axis = 0), subtitles = oi.basenames, fig = fig)
-        gPlot.reImPlot(w, np.ma.masked_array(bestFits[k], oi.visOi.flag).mean(axis = 0), fig = fig)
-        plt.legend([oi.filename.split("/")[-1], "Astrometry fit"])
-        plt.savefig(FIGDIR+"/astrometry_fit_"+str(k)+".pdf")
-        fig = plt.figure(figsize=(10, 8))        
-        gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.visRef, oi.visOi.flag).mean(axis = 0), subtitles = oi.basenames, fig = fig)
-        gPlot.reImPlot(w, np.ma.masked_array(bestFitStars[k], oi.visOi.flag).mean(axis = 0), fig = fig)
-        plt.legend([oi.filename.split("/")[-1], "Star fit"])
-        plt.savefig(FIGDIR+"/star_fit_"+str(k)+".pdf")                
+        for k in range(len(objOis)):
+            oi = objOis[k]
+            fig = plt.figure(figsize=(10, 8))
+            gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.visRef-bestFitStars[k], oi.visOi.flag).mean(axis = 0), subtitles = oi.basenames, fig = fig)
+            gPlot.reImPlot(w, np.ma.masked_array(bestFits[k], oi.visOi.flag).mean(axis = 0), fig = fig)
+            plt.legend([oi.filename.split("/")[-1], "Astrometry fit"])
+            pdf.savefig()
+            fig = plt.figure(figsize=(10, 8))        
+            gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.visRef, oi.visOi.flag).mean(axis = 0), subtitles = oi.basenames, fig = fig)
+            gPlot.reImPlot(w, np.ma.masked_array(bestFitStars[k], oi.visOi.flag).mean(axis = 0), fig = fig)
+            plt.legend([oi.filename.split("/")[-1], "Star fit"])
+            pdf.savefig()
 
-    fig = plt.figure(figsize = (10, 10))
-    n = int(np.ceil(np.sqrt(len(objOis)+1)))
-    ax = fig.add_subplot(n, n, 1)
-    gPlot.uvMap(objOis[0].visOi.uCoord[0, :, :], objOis[0].visOi.vCoord[0, :, :], targetCoord=(raBest, decBest), legend = objOis[0].basenames, symmetric = True, ax = ax, colors = ["C"+str(k) for k in range(6)])
-    for k in range(len(objOis)):
-        ax = fig.add_subplot(n, n, k+2)
-        oi = objOis[k]
-        name = oi.filename.split('/')[-1]
-        ax.imshow(chi2Maps[k, :, :].T, origin = "lower", extent = mapExtent)
-        ax.plot(raBests[k], decBests[k], "+C1")
-        ax.plot(raBests_local[k], decBests_local[k], "+C2")                 
-        ax.plot(raBest, decBest, "+C3")
-        for c in range(oi.visOi.nchannel):
-            if c not in IGNORE_BASELINES:
-                for j in range(np.shape(decOpdBaselines)[2]):
-                    if j == np.shape(decOpdBaselines)[2]//2:
-                        ax.plot(raValues, decOpdBaselines[k, c, j, :], 'C'+str(c)+'-', linewidth=2)
-                    else:
-                        ax.plot(raValues, decOpdBaselines[k, c, j, :], 'C'+str(c)+'--', linewidth=2)                        
-        plt.xlim(mapExtent[0], mapExtent[1])
-        plt.ylim(mapExtent[2], mapExtent[3])
+            fig = plt.figure(figsize = (10, 10))
+            n = int(np.ceil(np.sqrt(len(objOis)+1)))
+            ax = fig.add_subplot(n, n, 1)
+            gPlot.uvMap(objOis[0].visOi.uCoord[0, :, :], objOis[0].visOi.vCoord[0, :, :], targetCoord=(raBest, decBest), legend = objOis[0].basenames, symmetric = True, ax = ax, colors = ["C"+str(k) for k in range(6)])
+        for k in range(len(objOis)):
+            ax = fig.add_subplot(n, n, k+2)
+            oi = objOis[k]
+            name = oi.filename.split('/')[-1]
+            ax.imshow(chi2Maps[k, :, :].T, origin = "lower", extent = mapExtent)
+            ax.plot(raBests[k], decBests[k], "+C1")
+            ax.plot(raBests_local[k], decBests_local[k], "+C2")                 
+            ax.plot(raBest, decBest, "+C3")
+            for c in range(oi.visOi.nchannel):
+                if c not in IGNORE_BASELINES:
+                    for j in range(np.shape(decOpdBaselines)[2]):
+                        if j == np.shape(decOpdBaselines)[2]//2:
+                            ax.plot(raValues, decOpdBaselines[k, c, j, :], 'C'+str(c)+'-', linewidth=2)
+                        else:
+                            ax.plot(raValues, decOpdBaselines[k, c, j, :], 'C'+str(c)+'--', linewidth=2)                        
+            plt.xlim(mapExtent[0], mapExtent[1])
+            plt.ylim(mapExtent[2], mapExtent[3])
+            ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
+            ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
+            ax.set_title(name)
+        plt.tight_layout()
+        pdf.savefig()
+
+        fig = plt.figure(figsize = (6, 6))
+        ax = fig.add_subplot(111)
+        ax.plot(raBests, decBests, "oC0")
+        ax.plot(raBests_local, decBests_local, "oC1")    
+        val, vec = np.linalg.eig(cov)
+        e1=matplotlib.patches.Ellipse((raBests.mean(),decBests.mean()), 2*val[0]**0.5, 2*val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C0', linewidth=2, linestyle='--')
+        e2=matplotlib.patches.Ellipse((np.mean(raBests), np.mean(decBests)), 3*2*val[0]**0.5, 3*2*val[1]**0.5, angle=np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color='C0', linewidth=2)
+        ax.add_patch(e1)
+        ax.add_patch(e2)    
+        ax.plot([np.mean(raBests)], [np.mean(decBests)], '+C0')
+        ax.text(raBests.mean()+val[0]**0.5, decBests.mean()+val[1]**0.5, "RA={:.2f}+-{:.3f}\nDEC={:.2f}+-{:.3f}\nCOV={:.2f}".format(np.mean(raBests), cov[0, 0]**0.5, np.mean(decBests), cov[1, 1]**0.5, cov[0, 1]/np.sqrt(cov[0, 0]*cov[1, 1])))
+    
+        val, vec = np.linalg.eig(cov_local)
+        e1=matplotlib.patches.Ellipse((raBests_local.mean(), decBests_local.mean()), 2*val[0]**0.5, 2*val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C1', linewidth=2, linestyle='--')
+        e2=matplotlib.patches.Ellipse((np.mean(raBests_local), np.mean(decBests_local)), 3*2*val[0]**0.5, 3*2*val[1]**0.5, angle=np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color='C1', linewidth=2)
+        ax.add_patch(e1)
+        ax.add_patch(e2)    
+        ax.plot([np.mean(raBests_local)], [np.mean(decBests_local)], '+C1')
+        ax.text(raBests_local.mean()-val[0]**0.5, decBests_local.mean()-val[1]**0.5, "RA={:.2f}+-{:.3f}\nDEC={:.2f}+-{:.3f}\nCOV={:.2f}".format(np.mean(raBests_local), cov_local[0, 0]**0.5, np.mean(decBests_local), cov_local[1, 1]**0.5, cov_local[0, 1]/np.sqrt(cov_local[0, 0]*cov_local[1, 1])))    
         ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
         ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
-        ax.set_title(name)
-    plt.tight_layout()
-    plt.savefig(FIGDIR+"/astrometry_chi2Maps.pdf")
-
-    fig = plt.figure(figsize = (6, 6))
-    ax = fig.add_subplot(111)
-    ax.plot(raBests, decBests, "oC0")
-    ax.plot(raBests_local, decBests_local, "oC1")    
-    val, vec = np.linalg.eig(cov)
-    e1=matplotlib.patches.Ellipse((raBests.mean(),decBests.mean()), 2*val[0]**0.5, 2*val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C0', linewidth=2, linestyle='--')
-    e2=matplotlib.patches.Ellipse((np.mean(raBests), np.mean(decBests)), 3*2*val[0]**0.5, 3*2*val[1]**0.5, angle=np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color='C0', linewidth=2)
-    ax.add_patch(e1)
-    ax.add_patch(e2)    
-    ax.plot([np.mean(raBests)], [np.mean(decBests)], '+C0')
-    ax.text(raBests.mean()+val[0]**0.5, decBests.mean()+val[1]**0.5, "RA={:.2f}+-{:.3f}\nDEC={:.2f}+-{:.3f}\nCOV={:.2f}".format(np.mean(raBests), cov[0, 0]**0.5, np.mean(decBests), cov[1, 1]**0.5, cov[0, 1]/np.sqrt(cov[0, 0]*cov[1, 1])))
+        plt.axis("equal")
+        pdf.savefig()
     
-    val, vec = np.linalg.eig(cov_local)
-    e1=matplotlib.patches.Ellipse((raBests_local.mean(), decBests_local.mean()), 2*val[0]**0.5, 2*val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C1', linewidth=2, linestyle='--')
-    e2=matplotlib.patches.Ellipse((np.mean(raBests_local), np.mean(decBests_local)), 3*2*val[0]**0.5, 3*2*val[1]**0.5, angle=np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color='C1', linewidth=2)
-    ax.add_patch(e1)
-    ax.add_patch(e2)    
-    ax.plot([np.mean(raBests_local)], [np.mean(decBests_local)], '+C1')
-    ax.text(raBests_local.mean()-val[0]**0.5, decBests_local.mean()-val[1]**0.5, "RA={:.2f}+-{:.3f}\nDEC={:.2f}+-{:.3f}\nCOV={:.2f}".format(np.mean(raBests_local), cov_local[0, 0]**0.5, np.mean(decBests_local), cov_local[1, 1]**0.5, cov_local[0, 1]/np.sqrt(cov_local[0, 0]*cov_local[1, 1])))    
-    ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
-    ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
-    plt.axis("equal")
-    plt.savefig(FIGDIR+"/solution.pdf")
-    
-if dargs['save_residuals']:
+if SAVE_RESIDUALS:
     np.save(FIGDIR+"/"+"wav.npy", w[0, :])    
     for k in range(len(objOis)):
         oi = objOis[k]
@@ -511,6 +532,8 @@ if dargs['save_residuals']:
         np.save(FIGDIR+"/"+name+"_flags.npy", flags)
         np.save(FIGDIR+"/"+name+"_ft.npy", visFt)                                
 
+        
+        
 stop()
 
 # A large array to store the coefficients of the fits
@@ -1020,3 +1043,24 @@ plt.figure()
 plt.imshow(chi2Maps[0].T, origin = "lower")
 plt.plot(i, j, "+C1")
 plt.plot(iBest, jBest, "+C2")
+
+
+
+fig = plt.figure()
+gPlot.reImPlot(w, oi.visOi.visRef.mean(axis = 0), subtitles = oi.basenames, fig = fig)
+gPlot.reImPlot(w, bestFitStar.mean(axis = 0), fig = fig)
+
+
+
+opds = np.zeros(N_RA*N_DEC)
+chi2 = np.zeros(N_RA*N_DEC)
+r = 0
+for i in range(N_RA):
+    for j in range(N_DEC):
+        opds[r] = oi.visOi.getOpd(raValues[i], decValues[j])[0, 4]
+        chi2[r] = chi2Maps[0][i, j]
+        r = r+1
+
+plt.figure()
+plt.plot(opds, chi2, '+')
+

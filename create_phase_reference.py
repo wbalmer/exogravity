@@ -215,6 +215,8 @@ if PHASEREF_MODE == "DF_SWAP":
     phaseRef = phaseRef - correction
     # for convenience, we store this ref in visRef angle, getting rid of the useless values from the star
     visRefs = [2*np.abs(visRef)*np.exp(1j*phaseRef) for visRef in visRefs] # factor 2 because the beamspliter is used for on-star observations
+#    visRefs = [2*np.exp(1j*phaseRef) for visRef in visRefs] # factor 2 because the beamspliter is used for on-star observations
+#    visRefs = [2*np.abs(swapOis[k].visOi.visRef).mean(axis = 0)*np.exp(1j*phaseRef) for visRef in visRefs] # factor 2 because the beamspliter is used for on-star observations
 
 # SAVE VISREF IN THE FITS FILE
 for k in range(len(objOis)):
