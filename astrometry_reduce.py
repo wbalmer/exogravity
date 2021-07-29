@@ -24,17 +24,21 @@ Version:
   xx.xx
 """
 
-# IMPORTS
+# BASIC IMPORTS
 import numpy as np
 import scipy.sparse, scipy.sparse.linalg
 from scipy.linalg import lapack
 import astropy.io.fits as fits
+# cleanGravity IMPORTS
 import cleanGravity as gravity
 from cleanGravity import complexstats as cs
 from cleanGravity.utils import loadFitsSpectrum, saveFitsSpectrum
-from utils import *
+from utils import * # utils from this exooGravity package
+from common import *
+# other random stuffs
 import glob
 import itertools
+# ruamel to read config yml file
 try:
     import ruamel.yaml
     RUAMEL = True
@@ -42,7 +46,6 @@ except: # if ruamel not available, switch back to pyyaml, which does not handle 
     import yaml
     RUAMEL = False
 import sys, os
-
 
 # load aguments into a dictionnary
 dargs = args_to_dict(sys.argv)
@@ -56,14 +59,10 @@ REQUIRED_ARGS = ["config_file"]
 for req in REQUIRED_ARGS:
     if not(req in dargs.keys()):
         printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
-        stop()
 
 CONFIG_FILE = dargs["config_file"]
 if not(os.path.isfile(CONFIG_FILE)):
     raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
-
-if not("save_residuals") in dargs.keys():
-    dargs['save_residuals'] = False
     
 # READ THE CONFIGURATION FILE
 if RUAMEL:
@@ -76,6 +75,7 @@ CONTRAST_FILE = cfg["general"]["contrast_file"]
 NO_INV = cfg["general"]["noinv"]
 GO_FAST = cfg["general"]["gofast"]
 FIGDIR = cfg["general"]["figdir"]
+SAVE_RESIDUALS = cfg["general"]["save_residuals"]
 PLANET_FILES = [DATA_DIR+cfg["planet_ois"][k]["filename"] for k in cfg["general"]["reduce"]] # list of files corresponding to planet exposures
 if not("swap_ois" in cfg.keys()):
     SWAP_FILES = []
@@ -90,6 +90,12 @@ N_DEC = cfg["general"]["n_dec"]
 RA_LIM = cfg["general"]["ralim"]
 DEC_LIM = cfg["general"]["declim"]
 EXTENSION = cfg["general"]["extension"]
+REDUCTION = cfg["general"]["reduction"]
+
+# FILTER DATA
+PHASEREF_ARCLENGTH_THRESHOLD = cfg["general"]["phaseref_arclength_threshold"]
+FT_FLUX_THRESHOLD = cfg["general"]["ft_flux_threshold"]
+IGNORE_BASELINES = cfg["general"]["ignore_baselines"]
 
 # OVERWRITE SOME OF THE CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
 if "gofast" in dargs.keys():
@@ -98,6 +104,8 @@ if "noinv" in dargs.keys():
     NO_INV = dargs["noinv"] # bypass value from config file
 if "figdir" in dargs.keys():
     FIGDIR = dargs["figdir"] # bypass value from config file
+if "save_residuals" in dargs.keys():
+    SAVE_RESIDUALS = True # bypass value from config file
 
 # LOAD GRAVITY PLOT is savefig requested
 if not(FIGDIR is None):
@@ -108,9 +116,9 @@ if not(FIGDIR is None):
         os.makedirs(FIGDIR)
         printinf("Directory {} was not found and has been created".format(FIGDIR))
 
-# THROW AN ERROR IF save_residuals requested, but not FIGDIR provided
-if dargs['save_residuals'] and (FIGDIR is None):
-    printerr("save_residuals option requested, but not figdir provided.")
+# THROW AN ERROR IF save_residuals requested, but no FIGDIR provided
+if SAVE_RESIDUALS and (FIGDIR is None):
+    printerr("save_residuals option requested, but no figdir provided.")
         
 # extract list of useful star ois from the list indicated in the star_indices fields of the config file:
 star_indices = []
@@ -122,165 +130,73 @@ STAR_FILES = [DATA_DIR+cfg["star_ois"][k]["filename"] for k in star_indices]
 
 # read the contrast file if given, otherwise simply set it to 1
 if CONTRAST_FILE is None:
-    contrast = 1
+    contrast_data = None
 elif CONTRAST_FILE.split('.')[-1].lower() in ["fit", "fits"]:
     contrast_wav, dummy, dummy2, contrast_data, dummy3 = loadFitsSpectrum(CONTRAST_FILE)
 else:
     printerr("The given contrast file ({}) should have a fits extension".format(fits))
 
-# two lists to contain the planet and star OIs
-starOis = [] # will contain OIs on the central star
+# lists to contain the planet, star, and potentially swap OIs
 objOis = [] # contains the OIs on the planet itself
-swapOis = [] # first position of the swap (only in DF_SWAP mode)
-
 
 # LOAD DATA
 for filename in PLANET_FILES:
     printinf("Loading file "+filename)
-    oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = EXTENSION, corrDisp = cfg["general"]["corr_disp"])
-    objOis.append(oi)
-    printinf("File is on planet. FT coherent flux: {:.2e}".format(np.mean(np.abs(oi.visOi.visDataFt))))        
-
-for filename in STAR_FILES:
-    printinf("Loading file "+filename)
-    if (PHASEREF_MODE == "DF_SWAP"):
-        oi = gravity.GravityDualfieldAstrored(filename, corrMet = "drs", extension = EXTENSION, corrDisp = "drs")
-    else:
+    if REDUCTION == "astrored":
         oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = EXTENSION, corrDisp = cfg["general"]["corr_disp"])
-    starOis.append(oi)
-    printinf("File is on star")
-                                              
-for filename in SWAP_FILES:
-    printinf("Loading file "+filename)
-    oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = EXTENSION, corrDisp = cfg["general"]["corr_disp"])
-    swapOis.append(oi)
-    printinf("File is from a SWAP")
+        printinf("File is on planet. FT coherent flux: {:.2e}".format(np.mean(np.abs(oi.visOi.visDataFt))))                
+    elif REDUCTION == "dualscivis":
+        oi = gravity.GravityDualfieldScivis(filename, extension = EXTENSION)
+        printinf("File is on planet")
+    else:
+        printerr("Unknonwn reduction type '{}'.".format(REDUCTION))        
+    objOis.append(oi)
 
-        
-# flag points based on FT value
-ftThreshold = np.array([np.abs(oi.visOi.visDataFt).mean() for oi in objOis]).mean()/10.0
-printinf("Flag data below FT threshold of {:.2e}".format(ftThreshold))
-for oi in objOis:
-    oi.visOi.visDataFt[:, 0, :] = ftThreshold/100
-    oi.visOi.visDataFt[:, 1, :] = ftThreshold/100
-    oi.visOi.visDataFt[:, 2, :] = ftThreshold/100
-#    oi.visOi.visDataFt[:, 3, :] = ftThreshold/100
-#    oi.visOi.visDataFt[:, 4, :] = ftThreshold/100
-#    oi.visOi.visDataFt[:, 5, :] = ftThreshold/100
-    a, b = np.where(np.abs(oi.visOi.visDataFt).mean(axis = -1) < ftThreshold)
-    (a, b, c) = np.meshgrid(a, b, range(oi.nwav))
-    oi.visOi.flagPoints((a, b, c))
+# filter data
+if REDUCTION == "astrored":
+    # flag points based on FT value and phaseRef arclength
+    ftThresholdPlanet = cfg["general"]["ftOnPlanetMeanFlux"]*FT_FLUX_THRESHOLD
+    for oi in objOis:
+        filter_ftflux(oi, ftThresholdPlanet)
+        if PHASEREF_ARCLENGTH_THRESHOLD > 0:
+            filter_phaseref_arclength(oi, PHASEREF_ARCLENGTH_THRESHOLD)
+        # explicitly set ignored baselines to NAN
+        if len(IGNORE_BASELINES)>0:
+            a = range(oi.visOi.ndit)
+            b = IGNORE_BASELINES
+            (a, b, c) = np.meshgrid(a, b, range(oi.nwav))
+            oi.visOi.flagPoints((a, b, c))
+            printinf("Ignoring some baselines in file {}".format(oi.filename))
 
-    
 # replace data by the mean over all DITs if go_fast has been requested in the config file
 printinf("gofast flag is set. Averaging over DITs")
-for oi in objOis+starOis: # mean should not be calculated on swap before phase correction
+for oi in objOis: # mean should not be calculated on swap before phase correction
     if (GO_FAST):
         printinf("Averaging file {}".format(oi.filename))
-        oi.computeMean()
         oi.visOi.recenterPhase(oi.sObjX, oi.sObjY)
-        u = np.copy(oi.visOi.u)
-        oi.visOi.u = np.zeros([1, oi.visOi.nchannel])
-        oi.visOi.u[0, :] = np.mean(u, axis = 0)
-        v = np.copy(oi.visOi.v)
-        oi.visOi.v = np.zeros([1, oi.visOi.nchannel])        
-        oi.visOi.v[0, :] = np.mean(v, axis = 0)                
-        oi.visOi.visData = np.tile(np.mean(oi.visOi.visData*~oi.visOi.flag, axis = 0), [1, 1, 1])#/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
-        oi.visOi.visRef = np.tile(np.mean(oi.visOi.visRef*~oi.visOi.flag, axis = 0), [1, 1, 1])#/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
-        oi.visOi.uCoord = np.tile(np.mean(oi.visOi.uCoord*~oi.visOi.flag, axis = 0), [1, 1, 1])#/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
-        oi.visOi.vCoord = np.tile(np.mean(oi.visOi.vCoord*~oi.visOi.flag, axis = 0), [1, 1, 1])#/np.sum(~oi.visOi.flag, axis = 0), [1, 1, 1])
-#        oi.visOi.visCov = np.tile(np.mean(oi.visOi.visCov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
-#        oi.visOi.visPcov = np.tile(np.mean(oi.visOi.visPcov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
-#        oi.visOi.visRefCov = np.tile(np.mean(oi.visOi.visRefCov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
-#        oi.visOi.visRefPcov = np.tile(np.mean(oi.visOi.visRefPcov*~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])#/np.sum(~oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])
-        for dit, c in itertools.product(range(1, oi.visOi.ndit), range(oi.visOi.nchannel)):
-            oi.visOi.visRefCov[0, c] = oi.visOi.visRefCov[0, c] + oi.visOi.visRefCov[dit, c]
-            oi.visOi.visRefPcov[0, c] = oi.visOi.visRefPcov[0, c] + oi.visOi.visRefPcov[dit, c]
-        oi.visOi.visRefCov = oi.visOi.visRefCov[0:1, :]/oi.visOi.ndit**2
-        oi.visOi.visRefPcov = oi.visOi.visRefPcov[0:1, :]/oi.visOi.ndit**2       
-        oi.visOi.flag = np.tile(np.any(oi.visOi.flag, axis = 0), [1, 1, 1])
-        oi.visOi.flagCov = np.tile(np.any(oi.visOi.flagCov, axis = 0), [1, 1, 1, 1])        
-        oi.visOi.ndit = 1
-        oi.ndit = 1        
-        oi.visOi.recenterPhase(-oi.sObjX, -oi.sObjY)        
         oi.computeMean()
-        oi.visOi.visErr = np.zeros([1, oi.visOi.nchannel, oi.nwav], 'complex')    
-        oi.visOi.visErr[0, :, :] = np.copy(oi.visOi.visErrMean)
-
+        oi.visOi.recenterPhase(-oi.sObjX, -oi.sObjY)
 
 # calculate the very useful w for plotting
 oi = objOis[0]
 w = np.zeros([oi.visOi.nchannel, oi.nwav])
-wFt = np.zeros([oi.visOi.nchannel, oi.visOi.nwavFt])
 for c in range(oi.visOi.nchannel):
     w[c, :] = oi.wav*1e6
-    wFt[c, :] = range(oi.visOi.nwavFt)
-
     
-# create the visibility reference. This step depends on PHASEREF_MODE (DF_STAR or DF_SWAP)
-printinf("Creating the visibility reference from {:d} star observations.".format(len(starOis)))
+if REDUCTION == "astrored":
+    wFt = np.zeros([oi.visOi.nchannel, oi.visOi.nwavFt])
+    for c in range(oi.visOi.nchannel):
+        wFt[c, :] = range(oi.visOi.nwavFt)
+
+# retrieve the reference visibility for each OB
+printinf("Retrieving visibility references from fits files")
 visRefs = [oi.visOi.visRef.mean(axis=0)*0 for oi in objOis]
 for k in range(len(objOis)):
-    planet_ind = cfg["general"]["reduce"][k]
-    ampRef = np.zeros([oi.visOi.nchannel, oi.nwav])
-    visRef = np.zeros([oi.visOi.nchannel, oi.nwav])
-    for ind in cfg["planet_ois"][planet_ind]["star_indices"]:
-        # not all star files have been loaded, so we cannot trust the order and we need to explicitly look for the correct one
-        starOis_ind = [soi.filename for soi in starOis].index(DATA_DIR+cfg["star_ois"][ind]["filename"]) 
-        soi = starOis[starOis_ind]
-        visRef = visRef+soi.visOi.visRef.mean(axis = 0)
-        ampRef = ampRef+np.abs(soi.visOi.visRef.mean(axis = 0))
-    ###===### 
-#    visRef = np.zeros([oi.visOi.nchannel, oi.nwav])
-#    for ind in range(len(starOis)):
-#        soi = starOis[ind]
-#        visRef = visRef+soi.visOi.visRef.mean(axis = 0)                                                         
-    ###===###
-#    visRefs[k] = ampRef/len(cfg["planet_ois"][planet_ind]["star_indices"])*np.exp(1j*np.angle(visRef/len(objOis)))#/len(cfg["planet_ois"][planet_ind]["star_indices"])))#/len(starOis))) ###===###
-    visRefs[k] = ampRef/len(cfg["planet_ois"][planet_ind]["star_indices"])*np.exp(1j*np.angle(visRef/len(cfg["planet_ois"][planet_ind]["star_indices"])))#/len(starOis))) ###===###     
-
-# in DF_SWAP mode, thephase reference of the star cannot be used. We need to extract the phase ref from the SWAP observations
-if PHASEREF_MODE == "DF_SWAP":
-    printinf("DF_SWAP mode set.")
-    printinf("Calculating the reference phase from {:d} swap observation".format(len(swapOis)))
-    # first we need to shift all of the visibilities to the 0 OPD position, using the separation of the SWAP binary
-    # if swap ra and dec values are provided (from the swapReduce script), we can use them
-    # otherwise we can default to the fiber separation value
-    for k in range(len(swapOis)):
-        oi = swapOis[k]
-        key = cfg["swap_ois"].keys()[k] # the corresponding key in the config file
-        if (not("astrometric_solution" in cfg["swap_ois"][key])):
-            printwar("astrometric_solution not provided for swap {:d}. Defaulting to fiber position RA={:.2f}, DEC={:.2f}".format(k, oi.sObjX, oi.sObjY))
-            swap_ra = oi.sObjX
-            swap_dec = oi.sObjY
-        else:
-            if oi.swap:
-                swap_ra = -cfg["swap_ois"][key]["astrometric_solution"][0]
-                swap_dec = -cfg["swap_ois"][key]["astrometric_solution"][1]                
-            else:
-                swap_ra = cfg["swap_ois"][key]["astrometric_solution"][0]
-                swap_dec = cfg["swap_ois"][key]["astrometric_solution"][1]                
-        oi.visOi.recenterPhase(swap_ra, swap_dec)
-    # now that the visibilities are centered, we can take the mean of the visibilities and 
-    # extract the phase. But we need to separate the two positions of the swap
-    phaseRef1 = np.zeros([oi.visOi.nchannel, oi.nwav])
-    phaseRef2 = np.zeros([oi.visOi.nchannel, oi.nwav])
-    for k in range(len(swapOis)):
-        if swapOis[k].swap:
-            phaseRef2 = phaseRef2+np.mean(swapOis[k].visOi.visRef, axis = 0)
-        else:
-            phaseRef1 = phaseRef1+np.mean(swapOis[k].visOi.visRef, axis = 0)
-    # now we can the phaseref
-    phaseRef = 0.5*(np.angle(phaseRef2)+np.angle(phaseRef1))
-    # because the phase are defined mod 2pi, phaseref can have pi offsets. We need to unwrap that
-    # For this we test the phase continuity of a phase-referenced swap obs
-    testCase = np.angle(swapOis[0].visOi.visRef.mean(axis = 0))-phaseRef
-    unwrapped = 0.5*np.unwrap(2*testCase)
-    correction = unwrapped - testCase
-    phaseRef = phaseRef - correction
-    # for convenience, we store this ref in visRef angle, getting rid of the useless values from the star
-    visRefs = [np.abs(visRef)*np.exp(1j*phaseRef) for visRef in visRefs]
-
+    oi = objOis[k]
+    try:
+        visRefs[k] = fits.getdata(oi.filename, "EXOGRAV_VISREF").field("EXOGRAV_VISREF")
+    except:
+        printerr("Cannot find visibility reference (EXOGRAV_VISREF) in file {}.".format(oi.filename))
 
 # subtract the reference phase to each OB
 printinf("Subtracting phase reference to each planet OI.")
@@ -288,6 +204,74 @@ for k in range(len(objOis)):
     oi = objOis[k]
     oi.visOi.addPhase(-np.angle(visRefs[k]))
 
+# create projector matrices
+for k in range(len(objOis)):
+    oi = objOis[k]
+    printinf("Create projector matrices (p_matrices) ({}/{})".format(k+1, len(objOis)))
+    # calculate the projector
+    wav = oi.wav*1e6
+    vectors = np.zeros([STAR_ORDER+1, oi.nwav], 'complex64')
+    thisVisRef = visRefs[k]
+    thisAmpRef = np.abs(thisVisRef)
+    oi.visOi.p_matrices = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav, oi.nwav], 'complex64')
+    P = np.zeros([oi.visOi.nchannel, oi.nwav, oi.nwav], 'complex64')
+    for dit in range(oi.visOi.ndit): # the loop of DIT number is necessary because of bad points mgmt (bad_indices depends on dit)
+        for c in range(oi.visOi.nchannel):
+            for j in range(STAR_ORDER+1):
+                vectors[j, :] = np.abs(thisAmpRef[c, :])*(wav-np.mean(wav))**j # pourquoi ampRef et pas visRef ?
+            bad_indices = np.where(oi.visOi.flag[dit, c, :])
+            vectors[:, bad_indices] = 0
+            for l in range(oi.nwav):
+                x = np.zeros(oi.nwav)
+                x[l] = 1
+                coeffs = np.linalg.lstsq(vectors.T, x, rcond=-1)[0]
+                P[c, :, l] = x - np.dot(vectors.T, coeffs)
+        oi.visOi.p_matrices[dit, :, :, :] = P
+        
+printinf("Starting calculation of H matrices")
+for k in range(len(objOis)):
+    printinf("Calculating H ({:d}/{:d})".format(k+1, len(objOis)))
+    oi = objOis[k]
+    oi.visOi.h_matrices = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.visOi.nwav, oi.visOi.nwav], 'complex64')
+    oi.visOi.m = np.zeros([oi.visOi.ndit, oi.visOi.nchannel])
+    for dit in range(oi.visOi.ndit):
+        for c in range(oi.visOi.nchannel):
+            (G, d, H) = np.linalg.svd(oi.visOi.p_matrices[dit, c, :, :]) # scipy faster but different result?
+            D = np.diag(d)
+            oi.visOi.h_matrices[dit, c, :, :] = H
+            m = int(np.sum(d))
+            oi.visOi.m[dit, c] = m
+        
+# project visibilities
+for k in range(len(objOis)):
+    oi = objOis[k]
+    printinf("Projecting visibilities ({}/{})".format(k+1, len(objOis)))    
+    oi.visOi.visProj = [[[] for c in range(oi.visOi.nchannel)] for dit in range(oi.visOi.ndit)]
+    for dit in range(oi.visOi.ndit):
+        for c in range(oi.visOi.nchannel):
+            m = int(oi.visOi.m[dit, c])
+            oi.visOi.visProj[dit][c] = np.dot(oi.visOi.h_matrices[dit, c, 0:m, :], oi.visOi.visRef[dit, c, :])
+
+# invert covariance matrices
+for k in range(len(objOis)):
+    oi = objOis[k]
+    printinf("Inverting covariance matrices ({}/{})".format(k+1, len(objOis)))        
+    oi.visOi.W2inv = [[[] for c in range(oi.visOi.nchannel)] for dit in range(oi.visOi.ndit)]
+    for dit in range(oi.visOi.ndit): 
+        for c in range(oi.visOi.nchannel):
+            m = int(oi.visOi.m[dit, c])                   
+            # propagate projection of visibilities on errors
+            H_sp = scipy.sparse.csc_matrix(oi.visOi.h_matrices[dit, c, 0:m, :])
+            W_sp = scipy.sparse.csr_matrix(oi.visOi.visRefCov[dit, c].todense())
+            Z_sp = scipy.sparse.csr_matrix(oi.visOi.visRefPcov[dit, c].todense())
+            W = np.dot((H_sp.dot(W_sp)).todense(), cs.adj(H_sp).todense())
+            Z = np.dot((H_sp.dot(Z_sp)).todense(), H_sp.T.todense())
+            W2 = cs.extended_covariance(W, Z)#.real
+            oi.visOi.W2inv[dit][c] = np.linalg.inv(W2)
+            # invert the covariance matrix
+            #ZZ, _ = lapack.dpotrf(W2)
+            #T, info = lapack.dpotri(ZZ)
+            #oi.visOi.W2inv[dit][c] = np.triu(T) + np.triu(T, k=1).T
 
 # prepare chi2Maps
 printinf("RA grid: [{:.2f}, {:.2f}] with {:d} points".format(RA_LIM[0], RA_LIM[1], N_RA))
@@ -295,219 +279,142 @@ printinf("DEC grid: [{:.2f}, {:.2f}] with {:d} points".format(DEC_LIM[0], DEC_LI
 raValues = np.linspace(RA_LIM[0], RA_LIM[1], N_RA)
 decValues = np.linspace(DEC_LIM[0], DEC_LIM[1], N_DEC)
 chi2Maps = np.zeros([len(objOis), N_RA, N_DEC])
-
-# calculate limits in OPD
-opdLimits = np.zeros([len(objOis), objOis[0].visOi.nchannel, 2])
-opdLimits[:, :, 0] = +np.inf
-opdLimits[:, :, 1] = -np.inf
+# to store best fits values on each file
+bestFits = []
+kappas = np.zeros(len(objOis))
+raBests = np.zeros(len(objOis))
+decBests = np.zeros(len(objOis))
 
 for k in range(len(objOis)):
     oi = objOis[k]
-    for ra in raValues:
-        for dec in decValues:
-            opd = oi.visOi.getOpd(ra, dec)
-            for c in range(oi.visOi.nchannel):
-                if np.min(opd[:, c]) < opdLimits[k, c, 0]:
-                    opdLimits[k, c, 0] = np.min(opd[:, c])
-                if np.max(opd[:, c]) > opdLimits[k, c, 1]:
-                    opdLimits[k, c, 1] = np.max(opd[:, c])
-
-opdRanges = np.zeros([len(objOis), oi.visOi.nchannel, N_OPD])
-for k in range(len(objOis)):
-    oi = objOis[k]
-    for c in range(oi.visOi.nchannel):
-        opdRanges[k, c, :] = np.linspace(opdLimits[k, c, 0], opdLimits[k, c, 1], N_OPD)
-
-# calculate maps in OPD
-opdChi2Maps = []
-bestOpdFits = []
-nditsTot = np.sum(np.array([oi.visOi.ndit for oi in objOis]))
-for k in range(len(objOis)):
-    oi = objOis[k]
-    opdChi2Map = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, N_OPD]) 
-    bestOpdFit = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], 'complex')   
-    oi = objOis[k]
-    visRef = visRefs[k]
-#    visRef = totalVisRef
-    for dit in range(oi.visOi.ndit):
-        printinf("Calculating chi2 map in OPD space for planet OI {:d} of {:d} (dit {:d}/{:d}).".format(k+1, len(objOis), dit+1, oi.visOi.ndit))
-        for c in range(oi.visOi.nchannel):
-            # filter data points based on flag status
-            bad_indices = np.where(oi.visOi.flag[dit, c, :])
-            visRefNoBad = np.copy(oi.visOi.visRef[dit, c, :])
-            visRefNoBad[bad_indices] = 0            
-            # cov and pcov
-            W = oi.visOi.visRefCov[dit, c].todense() #np.diag((np.real(oi.visOi.visErr[dit, c, :])**2+np.imag(oi.visOi.visErr[dit, c, :])**2)) 
-            Z = oi.visOi.visRefPcov[dit, c].todense() #np.diag((np.real(oi.visOi.visErr[dit, c, :])**2-np.imag(oi.visOi.visErr[dit, c, :])**2))
- #           W = np.diag((np.real(oi.visOi.visErr[dit, c, :])**2+np.imag(oi.visOi.visErr[dit, c, :])**2)) 
- #           Z = np.diag((np.real(oi.visOi.visErr[dit, c, :])**2-np.imag(oi.visOi.visErr[dit, c, :])**2))            
-            W2 = cs.extended_covariance(W, Z).real
-            if NO_INV:
-                W2sp = scipy.sparse.csr_matrix(W2)
-                W2invA2 = np.zeros([2*oi.nwav, 2*STAR_ORDER+1], 'complex')
-            else:
-                ZZ, _ = lapack.dpotrf(W2)
-                T, info = lapack.dpotri(ZZ)
-                W2inv = np.triu(T) + np.triu(T, k=1).T
-            for j in range(N_OPD):
-                opd = opdRanges[k, c, j]
-                # calculate A matrix
-                A = np.zeros([oi.nwav, STAR_ORDER*2+1], 'complex')
-                for p in range(STAR_ORDER):
-                    A[:, 2*p] = np.abs(visRef[c, :])*((oi.wav-np.mean(oi.wav))*1e6)**p
-                    A[:, 2*p+1] = 1j*np.abs(visRef[c, :])*((oi.wav-np.mean(oi.wav))*1e6)**p                    
-                # last column requires phase and contrast
-                phase = 2*np.pi*opd/(oi.wav*1e6)
-                if not(CONTRAST_FILE is None):
-                    A[:, -1] = np.exp(-1j*phase)*np.abs(visRef[c, :])*(np.interp(oi.wav, contrast_wav*1e-6, contrast_data)/np.max(contrast_data))
-                else:
-                    A[:, -1] = np.exp(-1j*phase)*np.abs(visRef[c, :])
-                # filter nan points in the model
-                A[bad_indices, :] = 0
-                # maximum likelihood explicit solution
-                A2 = cs.conj_extended(A)
-                if NO_INV:
-                    for p in range(2*STAR_ORDER+1):
-                        W2invA2[:, p] = scipy.sparse.linalg.spsolve(W2sp, A2[:, p])
-                else:
-                    W2invA2 = np.dot(W2inv, A2)
-                left = np.real( np.dot(cs.adj(cs.conj_extended(visRefNoBad)), W2invA2) )
-                right = np.real( np.dot(cs.adj(A2), W2invA2) )
-                dzeta = np.transpose(np.dot(left, np.linalg.pinv(right)))
-                if (dzeta[-1] < 0) or (j==0):
-                    dzeta[-1] = 0
-                    A[:, -1] = 0
-                    A2 = cs.conj_extended(A)
-                    if NO_INV:
-                        W2invA2[:, -1] = scipy.sparse.linalg.spsolve(W2sp, A2[:, -1])
-                    else:
-                        W2invA2 = np.dot(W2inv, A2)
-                    left = np.real( np.dot(cs.adj(cs.conj_extended(visRefNoBad)), W2invA2) )
-                    right = np.real( np.dot(cs.adj(A2), W2invA2) )
-                    dzeta = np.transpose(np.dot(left, np.linalg.pinv(right)))
-                    dzeta[-1] = 0
-                # calculate the corresponding chi2
-                vec = cs.conj_extended(visRefNoBad) - np.dot(A2, dzeta)
-                if NO_INV:
-                    rightVec = scipy.sparse.linalg.spsolve(W2sp, vec)
-                    opdChi2Map[dit, c, j] = np.real(np.dot(cs.adj(vec), rightVec))
-                else:
-                    opdChi2Map[dit, c, j] = np.real(np.dot(np.dot(cs.adj(vec), W2inv), vec))
-                """
-                print("1.00 -> "+str(np.real(np.dot(np.dot(cs.adj(vec), W2inv), vec))))
-                vec = cs.conj_extended(visRefNoBad) - np.dot(A2, 0.99*dzeta)
-                print("0.99 -> "+str(np.real(np.dot(np.dot(cs.adj(vec), W2inv), vec))))                
-                vec = cs.conj_extended(visRefNoBad) - np.dot(A2, 1.01*dzeta)
-                print("1.01 -> "+str(np.real(np.dot(np.dot(cs.adj(vec), W2inv), vec))))                
-                stop()
-                """
-    opdChi2Maps.append(opdChi2Map)
-
-    
-# calculate the chi2Maps from the OPD maps
-chi2Maps = []
-for k in range(len(objOis)):
-    printinf("Calculating chi2 map in RA/DEC from OPD maps for planet OI {:d} of {:d}.".format(k+1, len(objOis)))
-    oi = objOis[k]
-    chi2Map = np.zeros([oi.visOi.ndit, N_RA, N_DEC])
+    chi2Best = np.inf
+    # prepare array
+    phi_values = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], 'complex')
+    # calculate As and Bs
+    phiBest = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex")
+    printinf("Calculating chi2Map for file {}".format(oi.filename))
     for i in range(N_RA):
         for j in range(N_DEC):
             ra = raValues[i]
             dec = decValues[j]
-            opd = oi.visOi.getOpd(ra, dec)
+            A, B = 0., 0.
+            kappa2 = 0
+            this_u = (ra*oi.visOi.uCoord + dec*oi.visOi.vCoord)/1e7
+            phase = 2*np.pi*this_u*1e7/3600.0/360.0/1000.0*2*np.pi
+            phi = np.exp(-1j*phase)*np.abs(visRefs[k])            
+            if not(contrast_data is None):
+                phi = phi*contrast_data
+            phiProj = [[[] for c in range(oi.visOi.nchannel)] for dit in range(oi.visOi.ndit)]
             for dit in range(oi.visOi.ndit):
                 for c in range(oi.visOi.nchannel):
-                    chi2Map[dit, i, j] += np.interp(opd[dit, c], opdRanges[k, c, :], opdChi2Maps[k][dit, c, :])
-    chi2Maps.append(chi2Map)
+                    m = int(oi.visOi.m[dit, c])
+                    bad_indices = np.where(oi.visOi.flag[dit, c, :])
+                    phi[dit, c, bad_indices] = 0
+                    phiProj[dit][c] = np.dot(oi.visOi.h_matrices[dit, c, 0:m, :], phi[dit, c, :])
+            for dit in range(oi.visOi.ndit):
+                for c in range(oi.visOi.nchannel):
+                    phiProj2 = cs.conj_extended(phiProj[dit][c])
+                    PV2 = cs.conj_extended(oi.visOi.visProj[dit][c])            
+                    Q = np.dot(cs.adj(phiProj2), oi.visOi.W2inv[dit][c])
+                    A = A+np.real(np.dot(Q, PV2))
+                    B = B+np.real(np.dot(Q, phiProj2))
+            kappa = A/B
+            chi2Maps[k, i, j] = -A**2/B # constant term was removed in this formula
+            if kappa < 0: # negative contrast if forbidden
+                kappa = 0
+                chi2Maps[k, i, j] = 0 # 0 is the reference chi2 in the calculations, since constant term of the likelihood was removed
+            if chi2Maps[k, i, j] < chi2Best:
+                phiBest = kappa*phi
+                chi2Best = chi2Maps[k, i, j]
+                raBests[k] = ra
+                decBests[k] = dec
+                kappas[k] = kappa
+    bestFits.append(phiBest)
 
-    
-# calculate the combined chi2Map and best parameters for each OB
-chi2Map = np.zeros([len(objOis), N_RA, N_DEC])
-raBest = np.zeros(len(objOis))
-decBest = np.zeros(len(objOis))
-for k in range(len(objOis)):
-    chi2Map[k, :, :] = np.sum(chi2Maps[k], axis = 0)
-    (a, b) = np.where(chi2Map[k, :, :] == np.min(chi2Map[k, :, :]))
-    raBest[k] = raValues[a[0]]
-    decBest[k] = decValues[b[0]]
-
-cov = np.cov(raBest, decBest)
-printinf("RA: {:.2f}+-{:.3f} mas".format(np.mean(raBest), cov[0, 0]**0.5))
-printinf("DEC: {:.2f}+-{:.3f} mas".format(np.mean(decBest), cov[1, 1]**0.5))
-printinf("COV: {:.2f}".format(cov[0, 1]/np.sqrt(cov[0, 0]*cov[1, 1])))
-
-
+# calculate best fit with only a star model by projetting visibilities                
+bestFitStars = []
 for k in range(len(objOis)):
     oi = objOis[k]
     bestFitStar = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex")
-    bestFit = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex")    
-    thisraBest = raBest[k]
-    thisdecBest = decBest[k]
-    visRef = visRefs[k]    
-    opdBest = oi.visOi.getOpd(thisraBest, thisdecBest)
-    printinf("Recaculating best fit for planet OI {:d} of {:d}).".format(k+1, len(objOis)))
     for dit in range(oi.visOi.ndit):
-        for c in range(0, oi.visOi.nchannel):
-            # filter data points based on flag status
-            bad_indices = np.where(oi.visOi.flag[dit, c, :])
-            visRefNoBad = np.copy(oi.visOi.visRef[dit, c, :])
-            visRefNoBad[bad_indices] = 0                        
-            # cov and pcov
-            W = oi.visOi.visRefCov[dit, c].todense() #np.diag((np.real(oi.visOi.visErr[dit, c, :])**2+np.imag(oi.visOi.visErr[dit, c, :])**2)) 
-            Z = oi.visOi.visRefPcov[dit, c].todense() #np.diag((np.real(oi.visOi.visErr[dit, c, :])**2-np.imag(oi.visOi.visErr[dit, c, :])**2))
-            W2 = cs.extended_covariance(W, Z).real
-            if NO_INV:
-                W2sp = scipy.sparse.csr_matrix(W2)
-                W2invA2 = np.zeros([2*oi.nwav, 2*STAR_ORDER+1], 'complex')
-            else:
-                ZZ, _ = lapack.dpotrf(W2)
-                T, info = lapack.dpotri(ZZ)
-                W2inv = np.triu(T) + np.triu(T, k=1).T
-            opd = opdBest[dit, c]
-            # calculate A matrix
-            A = np.zeros([oi.nwav, STAR_ORDER*2+1], 'complex')
-            for p in range(STAR_ORDER):
-                A[:, 2*p] = np.abs(visRef[c, :])*((oi.wav-np.mean(oi.wav))*1e6)**p
-                A[:, 2*p+1] = 1j*np.abs(visRef[c, :])*((oi.wav-np.mean(oi.wav))*1e6)**p
-            # last column requires phase and contrast
-            phase = 2*np.pi*opd/(oi.wav*1e6)
-            if not(CONTRAST_FILE is None):
-                A[:, -1] = np.exp(-1j*phase)*np.abs(visRef[c, :])*(np.interp(oi.wav, contrast_wav*1e-6, contrast_data)/np.max(contrast_data))
-            else:
-                A[:, -1] = np.exp(-1j*phase)*np.abs(visRef[c, :])
-            # filter nan points in the model
-            A[bad_indices, :] = 0                
-            # maximum likelihood explicit solution
-            A2 = cs.conj_extended(A)
-            if NO_INV:
-                for p in range(2*STAR_ORDER+1):
-                    W2invA2[:, p] = scipy.sparse.linalg.spsolve(W2sp, A2[:, p])
-            else:
-                W2invA2 = np.dot(W2inv, A2)
-            left = np.real( np.dot( cs.adj(cs.conj_extended(visRefNoBad)), W2invA2 ))
-            right = np.real( np.dot( cs.adj(A2), W2invA2 ) )
-            dzeta = np.transpose(np.dot(left, np.linalg.pinv(right)))
-            # calculate the corresponding fits
-            if dzeta[-1] < 0:
-                dzeta[-1] = 0
-                A[:, -1] = 0
-                A2 = cs.conj_extended(A)
-                if NO_INV:
-                    W2invA2[:, -1] = scipy.sparse.linalg.spsolve(W2sp, A2[:, -1])
-                else:
-                    W2invA2 = np.dot(W2inv, A2)
-                left = np.real( np.dot(cs.adj(cs.conj_extended(visRefNoBad)), W2invA2) )
-                right = np.real( np.dot(cs.adj(A2), W2invA2) )
-                dzeta = np.transpose(np.dot(left, np.linalg.pinv(right)))
-            bestFit[dit, c, :] = np.dot(A2, dzeta)[0:oi.nwav]
-            dzeta[-1] = 0
-            bestFitStar[dit, c, :] = np.dot(A2, dzeta)[0:oi.nwav] # star only
-    oi.visOi.bestFit = bestFit
-    oi.visOi.bestFitStar = bestFitStar
+        for c in range(oi.visOi.nchannel):
+            bestFitStar[dit, c, :] = oi.visOi.visRef[dit, c, :] - np.dot(oi.visOi.p_matrices[dit, c, :, :], oi.visOi.visRef[dit, c, :])
+    bestFitStars.append(bestFitStar)
+
+# also project the best fit in order to be able to compare it with data
+for k in range(len(objOis)):
+    oi = objOis[k]
+    for dit in range(oi.visOi.ndit):
+        for c in range(oi.visOi.nchannel):
+            bestFits[k][dit, c, :] = np.dot(oi.visOi.p_matrices[dit, c, :, :], bestFits[k][dit, c, :])
+    
+# combine chi2Maps to get best astrometric solution
+chi2Map = np.sum(chi2Maps, axis = 0)
+ind = np.where(chi2Map == np.min(chi2Map))
+raBest = raValues[ind[0][0]]
+decBest = decValues[ind[1][0]]
+
+# for each map, look for local minimum close to the best solution
+raBests_local = np.zeros(len(objOis))
+decBests_local = np.zeros(len(objOis))
+for k in range(len(objOis)):
+    printinf("Looking for local chi2 minimun for file {}".format(objOis[k].filename))
+    i, j = np.where(raValues == raBest)[0][0], np.where(decValues == decBest)[0][0]    
+    i, j = findLocalMinimum(chi2Maps[k, :, :], i, j, jump_size=5)
+    raBests_local[k] = raValues[i]
+    decBests_local[k] = decValues[j]
+    if (raBests_local[k] != raBests[k]) or (decBests_local[k] != decBests[k]):
+        printwar("Local minimum for file {} is different from global minimum".format(objOis[k].filename))
+
+
+# look for best opd on each baseline
+bestOpds = np.zeros([len(objOis), objOis[0].visOi.nchannel])
+for k in range(len(objOis)):
+    oi = objOis[k]
+    printwar("Looking for best OPD on each baseline for file {} is different from global minimum".format(objOis[k].filename))    
+    opdLimits = np.zeros([oi.visOi.nchannel, 2]) # min and max for each channel
+    opdLimits[:, 0] = +np.inf
+    opdLimits[:, 1] = -np.inf
+    # we'll go tgrough all the values and find the largets and smallest opd
+    for ra in raValues:
+        for dec in decValues:
+            opd = oi.visOi.getOpd(ra, dec) # opd[dit, c] is opd on channel c for dit dit corresponding to the ra/dec
+            for c in range(oi.visOi.nchannel):
+                if np.min(opd[:, c]) < opdLimits[c, 0]: # if bigger than current biggest we keep it
+                    opdLimits[c, 0] = np.min(opd[:, c])
+                if np.max(opd[:, c]) > opdLimits[c, 1]: # if smaller than current smallest we keep it
+                    opdLimits[c, 1] = np.max(opd[:, c])
+    # now we can create the array using request nopd
+    opdRanges = np.zeros([oi.visOi.nchannel, N_OPD])
+    for c in range(oi.visOi.nchannel):
+        opdRanges[c, :] = np.linspace(opdLimits[c, 0], opdLimits[c, 1], N_OPD)
+    # calculate the opd map
+    opdFit = oi.visOi.fitVisRefOpd(opdRanges, target_spectrum = np.abs(visRefs[k]), poly_spectrum = np.abs(visRefs[k]), poly_order = STAR_ORDER, no_inv = False)
+    bestOpds[k, :] = opdFit["best"].mean(axis = 0)
+
+decOpdBaselines = np.zeros([len(objOis), objOis[0].visOi.nchannel, 3, N_RA])
+for k in range(len(objOis)):
+    oi = objOis[k]
+#    wavref = 1e6*np.mean(oi.fluxOi.flux.mean(axis = 0).mean(axis = 0)*oi.wav)/np.mean(oi.fluxOi.flux) # flux weighted average wavelength in microns
+    wavref = 1e6*np.mean(oi.wav)
+    for c in range(oi.visOi.nchannel):
+        for j in range(np.shape(decOpdBaselines)[2]):
+            decOpdBaselines[k, c, j, :] = ((bestOpds[k, c]+(j-np.shape(decOpdBaselines)[2]//2)*wavref)/1e6*1000.0*3600.0*360.0/2.0/np.pi - raValues*oi.visOi.u[:, c].mean(axis = 0))/oi.visOi.v[:, c].mean(axis = 0)
+        
+cov = np.cov(raBests, decBests)
+printinf("RA: {:.2f}+-{:.3f} mas".format(np.mean(raBests), cov[0, 0]**0.5))
+printinf("DEC: {:.2f}+-{:.3f} mas".format(np.mean(decBests), cov[1, 1]**0.5))
+printinf("COV: {:.2f}".format(cov[0, 1]/np.sqrt(cov[0, 0]*cov[1, 1])))
+
+cov_local = np.cov(raBests_local, decBests_local)
+printinf("RA (from combined map): {:.2f}+-{:.3f} mas".format(raBest, cov_local[0, 0]**0.5))
+printinf("DEC (from combined map): {:.2f}+-{:.3f} mas".format(decBest, cov_local[1, 1]**0.5))
+
+printinf("Contrast obtained (mean, min, max): {:.2e}, {:.2e}, {:.2e}".format(np.mean(kappas), np.min(kappas), np.max(kappas)))
 
 for k in range(len(PLANET_FILES)):
     ind = cfg["general"]["reduce"][k]
-    cfg["planet_ois"][ind]["astrometric_solution"] = [float(raBest[k]), float(decBest[k])] # YAML cannot convert numpy types
+    cfg["planet_ois"][ind]["astrometric_solution"] = [float(raBests[k]), float(decBests[k])] # YAML cannot convert numpy types
             
 f = open(CONFIG_FILE, "w")
 if RUAMEL:
@@ -517,59 +424,150 @@ else:
 f.close()
 
 
-
-    
 if not(FIGDIR is None):
-    for k in range(len(objOis)):
-        oi = objOis[k]
-        fig = plt.figure(figsize=(10, 8))
-        gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.visRef-oi.visOi.bestFitStar, oi.visOi.flag).mean(axis = 0), subtitles = oi.basenames, fig = fig)
-        gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.bestFit-oi.visOi.bestFitStar, oi.visOi.flag).mean(axis = 0), fig = fig)
-        plt.legend([oi.filename.split("/")[-1], "Astrometry fit"])
-        plt.savefig(FIGDIR+"/astrometry_fit_"+str(k)+".pdf")
+    hdu = fits.PrimaryHDU(chi2Maps.transpose(0, 2, 1))
+    hdu.header["CRPIX1"] = 0.0
+    hdu.header["CRVAL1"] = raValues[0]
+    hdu.header["CDELT1"] = raValues[1] - raValues[0]
+    hdu.header["CRPIX2"] = 0.0
+    hdu.header["CRVAL2"] = decValues[0]
+    hdu.header["CDELT2"] = decValues[1] - decValues[0]
+    hdul = fits.HDUList([hdu])
+    hdul.writeto(FIGDIR+"/chi2Maps.fits", overwrite = True)
+    
+    from matplotlib.backends.backend_pdf import PdfPages
+    with PdfPages(FIGDIR+"/astrometry_fit_results.pdf") as pdf:
+        dRa = raValues[1] - raValues[0]
+        dDec = decValues[1] - decValues[0]    
+        mapExtent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)]
+    
+        plt.figure()
+        plt.imshow(chi2Map.T, origin = "lower", extent = mapExtent)
+        plt.xlabel("$\Delta{}\mathrm{RA}$ (mas)")
+        plt.ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
+        pdf.savefig()
 
-    fig = plt.figure(figsize = (10, 10))
-    n = int(np.ceil(np.sqrt(len(objOis))))
-    for k in range(len(objOis)):
-        ax = fig.add_subplot(n, n, k+1)
-        oi = objOis[k]
-        name = oi.filename.split('/')[-1]
-        ax.imshow(chi2Maps[k].sum(axis = 0).T, origin = "lower", extent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)])
+        # UV plot
+        plt.figure()
+        gPlot.uvMap(objOis[0].visOi.uCoord[0, :, :], objOis[0].visOi.vCoord[0, :, :], targetCoord=(raBest, decBest), legend = objOis[0].basenames, symmetric = True)
+        pdf.savefig()
+
+        for k in range(len(objOis)):
+            oi = objOis[k]
+            fig = plt.figure(figsize=(10, 8))
+            gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.visRef-bestFitStars[k], oi.visOi.flag).mean(axis = 0), subtitles = oi.basenames, fig = fig)
+            gPlot.reImPlot(w, np.ma.masked_array(bestFits[k], oi.visOi.flag).mean(axis = 0), fig = fig)
+            plt.legend([oi.filename.split("/")[-1], "Astrometry fit"])
+            pdf.savefig()
+            fig = plt.figure(figsize=(10, 8))        
+            gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.visRef, oi.visOi.flag).mean(axis = 0), subtitles = oi.basenames, fig = fig)
+            gPlot.reImPlot(w, np.ma.masked_array(bestFitStars[k], oi.visOi.flag).mean(axis = 0), fig = fig)
+            plt.legend([oi.filename.split("/")[-1], "Star fit"])
+            pdf.savefig()
+
+            fig = plt.figure(figsize = (10, 10))
+            n = int(np.ceil(np.sqrt(len(objOis)+1)))
+            ax = fig.add_subplot(n, n, 1)
+            gPlot.uvMap(objOis[0].visOi.uCoord[0, :, :], objOis[0].visOi.vCoord[0, :, :], targetCoord=(raBest, decBest), legend = objOis[0].basenames, symmetric = True, ax = ax, colors = ["C"+str(k) for k in range(6)])
+        for k in range(len(objOis)):
+            ax = fig.add_subplot(n, n, k+2)
+            oi = objOis[k]
+            name = oi.filename.split('/')[-1]
+            ax.imshow(chi2Maps[k, :, :].T, origin = "lower", extent = mapExtent)
+            ax.plot(raBests[k], decBests[k], "+C1")
+            ax.plot(raBests_local[k], decBests_local[k], "+C2")                 
+            ax.plot(raBest, decBest, "+C3")
+            for c in range(oi.visOi.nchannel):
+                if c not in IGNORE_BASELINES:
+                    for j in range(np.shape(decOpdBaselines)[2]):
+                        if j == np.shape(decOpdBaselines)[2]//2:
+                            ax.plot(raValues, decOpdBaselines[k, c, j, :], 'C'+str(c)+'-', linewidth=2)
+                        else:
+                            ax.plot(raValues, decOpdBaselines[k, c, j, :], 'C'+str(c)+'--', linewidth=2)                        
+            plt.xlim(mapExtent[0], mapExtent[1])
+            plt.ylim(mapExtent[2], mapExtent[3])
+            ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
+            ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
+            ax.set_title(name)
+        plt.tight_layout()
+        pdf.savefig()
+
+        fig = plt.figure(figsize = (6, 6))
+        ax = fig.add_subplot(111)
+        ax.plot(raBests, decBests, "oC0")
+        ax.plot(raBests_local, decBests_local, "oC1")    
+        val, vec = np.linalg.eig(cov)
+        e1=matplotlib.patches.Ellipse((raBests.mean(),decBests.mean()), 2*val[0]**0.5, 2*val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C0', linewidth=2, linestyle='--')
+        e2=matplotlib.patches.Ellipse((np.mean(raBests), np.mean(decBests)), 3*2*val[0]**0.5, 3*2*val[1]**0.5, angle=np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color='C0', linewidth=2)
+        ax.add_patch(e1)
+        ax.add_patch(e2)    
+        ax.plot([np.mean(raBests)], [np.mean(decBests)], '+C0')
+        ax.text(raBests.mean()+val[0]**0.5, decBests.mean()+val[1]**0.5, "RA={:.2f}+-{:.3f}\nDEC={:.2f}+-{:.3f}\nCOV={:.2f}".format(np.mean(raBests), cov[0, 0]**0.5, np.mean(decBests), cov[1, 1]**0.5, cov[0, 1]/np.sqrt(cov[0, 0]*cov[1, 1])))
+    
+        val, vec = np.linalg.eig(cov_local)
+        e1=matplotlib.patches.Ellipse((raBests_local.mean(), decBests_local.mean()), 2*val[0]**0.5, 2*val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C1', linewidth=2, linestyle='--')
+        e2=matplotlib.patches.Ellipse((np.mean(raBests_local), np.mean(decBests_local)), 3*2*val[0]**0.5, 3*2*val[1]**0.5, angle=np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color='C1', linewidth=2)
+        ax.add_patch(e1)
+        ax.add_patch(e2)    
+        ax.plot([np.mean(raBests_local)], [np.mean(decBests_local)], '+C1')
+        ax.text(raBests_local.mean()-val[0]**0.5, decBests_local.mean()-val[1]**0.5, "RA={:.2f}+-{:.3f}\nDEC={:.2f}+-{:.3f}\nCOV={:.2f}".format(np.mean(raBests_local), cov_local[0, 0]**0.5, np.mean(decBests_local), cov_local[1, 1]**0.5, cov_local[0, 1]/np.sqrt(cov_local[0, 0]*cov_local[1, 1])))    
         ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
         ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
-        ax.set_title(name)
-    plt.tight_layout()
-    plt.savefig(FIGDIR+"/astrometry_chi2Maps.pdf")
-
-    fig = plt.figure(figsize = (6, 6))
-    ax = fig.add_subplot(111)
-    ax.plot(raBest, decBest, "o")
-    val, vec = np.linalg.eig(cov)
-    e1 = matplotlib.patches.Ellipse((np.mean(raBest), np.mean(decBest)), 2*val[0]**0.5, 2*val[1]**0.5, angle = np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color = 'k', linewidth=2, linestyle = '--')
-    e2 = matplotlib.patches.Ellipse((np.mean(raBest), np.mean(decBest)), 3*2*val[0]**0.5, 3*2*val[1]**0.5, angle = np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color = 'k', linewidth=2)    
-    ax.add_patch(e1)
-    ax.add_patch(e2)    
-    ax.plot([np.mean(raBest)], [np.mean(decBest)], '+k')
-    ax.text(raBest.mean()+val[0]**0.5, decBest.mean()+val[1]**0.5, "RA={:.2f}+-{:.3f}\nDEC={:.2f}+-{:.3f}\nCOV={:.2f}".format(np.mean(raBest), cov[0, 0]**0.5, np.mean(decBest), cov[1, 1]**0.5, cov[0, 1]/np.sqrt(cov[0, 0]*cov[1, 1])))
-    ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
-    ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
-    plt.axis("equal")
-    plt.savefig(FIGDIR+"/solution.pdf")
-
+        plt.axis("equal")
+        pdf.savefig()
     
-if dargs['save_residuals']:
+if SAVE_RESIDUALS:
+    np.save(FIGDIR+"/"+"wav.npy", w[0, :])    
     for k in range(len(objOis)):
         oi = objOis[k]
         name = oi.filename.split('/')[-1].split('.fits')[0]
-        visPla = oi.visOi.visRef - oi.visOi.bestFitStar
-        visRes = np.ma.masked_array(oi.visOi.visRef - oi.visOi.bestFit, oi.visOi.flag).data
-        visResMask = np.ma.masked_array(oi.visOi.visRef - oi.visOi.bestFit, oi.visOi.flag).mask
-        np.save(FIGDIR+"/"+name+"_residuals.npy", visRes)
-        np.save(FIGDIR+"/"+name+"_planet.npy", visPla)        
-        np.save(FIGDIR+"/"+name+"_mask.npy", visResMask)    
+        visRef = oi.visOi.visRef
+        visFitStar = bestFitStars[k]
+        visFit = bestFits[k]
+        flags = oi.visOi.flag
+        visFt = oi.visOi.visDataFt        
+        np.save(FIGDIR+"/"+name+"_ref.npy", visRef)
+        np.save(FIGDIR+"/"+name+"_fit.npy", visFit)
+        np.save(FIGDIR+"/"+name+"_starfit.npy", visFitStar)
+        np.save(FIGDIR+"/"+name+"_flags.npy", flags)
+        np.save(FIGDIR+"/"+name+"_ft.npy", visFt)                                
+
+        
+        
+stop()
+
+# A large array to store the coefficients of the fits
+fig = plt.figure()
+for k in range(len(objOis)):
+    opdFit = opdFits[k]
+    values = opdFit["grid"]
+    params = opdFit["params"]
+    if k==0:
+        gPlot.baselinePlot(values, params[0, :, :, -1], subtitles = oi.basenames, fig = fig)
+    else:
+        gPlot.baselinePlot(values, params[0, :, :, -1], fig = fig)
+plt.tight_layout()
 
 stop()
 
+
+for k in range(len(objOis)):
+    fig = plt.figure()    
+    oi = objOis[k]
+    for dit in range(oi.ndit):
+        if dit == 0:
+            gPlot.reImPlot(w, oi.visOi.visRef[0, :, :], subtitles=oi.basenames, fig=fig)
+        else:
+            gPlot.reImPlot(w, oi.visOi.visRef[dit, :, :], fig=fig)
+
+wdits = np.zeros([oi.visOi.nchannel, oi.ndit])
+for c in range(oi.visOi.nchannel):
+    wdits[c, :] = range(oi.visOi.ndit)
+
+for k in range(len(objOis)):
+    coeff = bestParamsStars[k][:, :, 0]+1j*bestParamsStars[k][:, :, 1]
+    gPlot.baselinePlot(wdits, np.angle(coeff).T, subtitles = oi.basenames)
+            
 
 # ACTUAL CODE ENDS HERE!!!
 
@@ -711,6 +709,7 @@ for k in range(len(objOis)):
     if SAVEFIG:
         plt.savefig("astrometryReport/chi2Map_"+str(k)+".pdf")
         plt.close(fig)
+
 
 stop()
 
@@ -923,3 +922,145 @@ plt.text(xfib+r/2**0.5+1, yfib-r/2**0.5-1, "Fiber Field-of-view", ha='center', v
 #lt.ylabel("V coordinate ($\\times{}10^7 \mathrm{ rad}^{-1}$)")
 
 # Clip
+
+phaseRefFit = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.visOi.nwav])
+for dit in range(oi.visOi.ndit):
+    for c in range(oi.visOi.nchannel):
+        phaseRefFit[dit, c, :] = np.polyval(oi.visOi.phaseRefCoeff[dit, c, :], oi.visOi.wav)
+        
+k=10
+
+pref = oi.visOi.phaseRef[k, 3, :]
+coeff = oi.visOi.phaseRefCoeff[k, 3, :]
+#wavft = np.array(range(oi.visOi.nwavFt))
+#wwft = (wavft.mean()/wavft - 1)/(wavft.max() - wavft.min())*wavft.mean()
+w0 = oi.wav.mean()#*0+2.2e-6
+ww = (w0/oi.wav - 1)/(np.max(oi.wav) - np.min(oi.wav))*w0
+
+fig = plt.figure()
+plt.plot(ww, pref)
+plt.plot(ww, np.mod(-np.polyval(coeff[::-1], ww), 2*np.pi))
+
+#plt.plot(wwft, np.angle(oi.visOi.visDataFt[k, 3, :]))
+#plt.plot(wwft, np.polyval(coeff[::-1], wwft))
+
+
+#fig = plt.figure()
+#gPlot.baselinePlot(w, oi.visOi.phaseRef[k, :, :], subtitles = oi.basenames, fig = fig)
+#gPlot.baselinePlot(w, phaseRefFit[k, :, :], fig = fig)
+
+def calculatePhaseRefArclength(oi):
+    # calculate normalized wavelength grid used to fit phaseRef
+    w0 = oi.wav.mean()
+    wref = (w0/oi.wav - 1)/(np.max(oi.wav) - np.min(oi.wav))*w0
+    # prepare array for values
+    phaseRefArclength = np.zeros([oi.visOi.ndit, oi.visOi.nchannel])
+    for dit in range(oi.visOi.ndit):
+        for c in range(oi.visOi.nchannel):
+            coeffs = oi.visOi.phaseRefCoeff[dit, c, :]
+            print(coeffs)
+            # calculate the coeffs of 1+(dy/dx)**2
+            arclengthpolycoeff = np.array([1+coeffs[1]**2, 4*coeffs[1]*coeffs[2], 4*coeffs[2]**2+6*coeffs[1]*coeffs[3], 12*coeffs[2]*coeffs[3], 9*coeffs[3]**2])
+            # integrate sqrt(1+(dx/dy)**2) do get arclength. Minus sign because wref is decreasing
+            phaseRefArclength[dit, c] = -np.trapz(np.sqrt(np.polyval(arclengthpolycoeff[::-1], ww)), wref)
+    return phaseRefArclength
+
+
+nwav = oi.nwav
+wav = oi.wav
+poly_order = 6
+star = visRefs[0][0, :]
+vref = objOis[0].visOi.visRef[0, 0, :]
+nopd = 1000
+opd = np.linspace(0, 4, nopd)
+
+chi2 = np.zeros(nopd)
+coeff = np.zeros(nopd)
+for k in range(nopd):
+    A = np.zeros([nwav, poly_order*2+1], 'complex')
+    Y = np.zeros([2*nwav, 1], 'complex')
+    Y[:, 0] = cs.conj_extended(vref)
+    for p in range(poly_order):
+        A[:, 2*p] = np.abs(star)*((wav-np.mean(wav))*1e6)**p
+        A[:, 2*p+1] = 1j*np.abs(star)*((wav-np.mean(wav))*1e6)**p
+    phase = 2*np.pi*opd[k]/(wav*1e6)
+    A[:, -1] = np.exp(-1j*phase)*(0+np.abs(star))
+    A2 = cs.conj_extended(A)
+    print(np.min(np.linalg.svd(A2)[1])/np.max(np.linalg.svd(A2)[1]))
+    X = np.dot(np.linalg.pinv(A2, rcond = 1e-6), Y)
+    fit = np.dot(A2, X)
+    realfit = np.real(fit[0:nwav, 0])
+    imagfit = np.imag(fit[0:nwav, 0])
+    chi2[k] = np.sum((np.real(vref)-realfit)**2+(np.imag(vref)-imagfit)**2)
+    coeff[k] = X[-1, 0]
+
+plt.figure()
+plt.plot(opd, coeff)
+plt.plot(values[0, :], params[0, 0, :, -1])
+    
+fig = plt.figure()
+ax = fig.add_subplot(211)
+ax.plot(oi.wav, np.real(vref)-realfit)
+ax2 = fig.add_subplot(212)
+ax2.plot(oi.wav, np.imag(vref)-imagfit)
+
+fig = plt.figure()
+opdChi2 = opdFits[0]["map"][0, 0, :]
+grid = opdFits[0]["grid"][0, :]
+plt.plot(grid, opdChi2)
+
+plt.figure()
+plt.plot(opd, chi2)
+
+
+
+def findLocalMinimum(chi2Map, xstart, ystart, jump_size = 1):
+    """ Find the local minimum closest to starting point on the given chi2Map """
+    n, m = np.shape(chi2Map)
+    borderedMap = np.zeros([n+2*jump_size, m+2*jump_size])+np.inf
+    borderedMap[jump_size:-jump_size, jump_size:-jump_size] = chi2Map
+    found = False
+    x, y = xstart+jump_size, ystart+jump_size
+    while not(found):
+        submap = borderedMap[x-jump_size:x+jump_size+1, y-jump_size:y+jump_size+1]
+        ind = np.where(submap == np.min(submap))
+        print(ind)
+        if (x, y) == (x+ind[0][0]-jump_size, y+ind[1][0]-jump_size):
+            found = True
+        else:
+            x = x+ind[0][0]-jump_size
+            y = y+ind[1][0]-jump_size
+        print(x, y)
+        plt.plot(x, y)
+    return x-jump_size, y-jump_size
+
+i0, j0 = np.where(raValues == raBest)[0][0], np.where(decValues == decBest)[0][0]
+i, j = findLocalMinimum(chi2Maps[0], i0, j0, jump_size = 1)
+ind = np.where(chi2Maps[0] == np.min(chi2Maps[0]))
+iBest, jBest = ind[0][0], ind[1][0]
+
+plt.figure()
+plt.imshow(chi2Maps[0].T, origin = "lower")
+plt.plot(i, j, "+C1")
+plt.plot(iBest, jBest, "+C2")
+
+
+
+fig = plt.figure()
+gPlot.reImPlot(w, oi.visOi.visRef.mean(axis = 0), subtitles = oi.basenames, fig = fig)
+gPlot.reImPlot(w, bestFitStar.mean(axis = 0), fig = fig)
+
+
+
+opds = np.zeros(N_RA*N_DEC)
+chi2 = np.zeros(N_RA*N_DEC)
+r = 0
+for i in range(N_RA):
+    for j in range(N_DEC):
+        opds[r] = oi.visOi.getOpd(raValues[i], decValues[j])[0, 4]
+        chi2[r] = chi2Maps[0][i, j]
+        r = r+1
+
+plt.figure()
+plt.plot(opds, chi2, '+')
+
