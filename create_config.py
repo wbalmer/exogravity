@@ -27,7 +27,7 @@ Args:
   corr_disp (str, optional): can be "sylvestre" or "drs", or possibly "none" depending on which formula to use for the dispersion correction
   extension (int, optional): the FITS extension to use, which depends on the polarization in the data. Deafult to 10 (combined).
   swap_target (str, optional): the name of the target for the swap observations if off-axis mode
-  calib_strategy (str, optional): "all" to use all star files to calibrate visibility reference. "Nearest" to use the two nearest. On-axis only
+  calib_strategy (str, optional): "all" to use all star files to calibrate visibility reference. "Nearest" to use the two nearest. On-axis only. "None" to skip calibration
   target (str, optional): if you want to restrict to a particular target name, you can specify one
   reduction (str, optional, indev): default is "astrored". You can select "dualscivis".
   ft_flux_threshold (float, optional): if positive, all data with ft flux below this number times the mean ft flux for on star observation are removed (default 0.2)
@@ -225,6 +225,7 @@ else:
 
 general = {"datadir": dargs["datadir"],
            "phaseref_mode": phaseref_mode,
+           "calib_strategy": dargs["calib_strategy"],           
            "corr_met": dargs['corr_met'],
            "corr_disp": dargs['corr_disp'],
            "extension": int(dargs["extension"]),
@@ -263,6 +264,8 @@ for k in range(len(objOis)):
         d["star_indices"] = ["s"+str(j) for j in [starOis.index(oiBefore), starOis.index(oiAfter)]]
     elif dargs["calib_strategy"].lower() == "all":
         d["star_indices"] = ["s"+str(j) for j in range(len(starOis))]
+    elif dargs["calib_strategy"].lower() == "none":
+        d["star_indices"] = []
     else:
         printerr("Unknown calibration strategy: {}".format(dargs["calib_strategy"]))
     planet_files["p"+str(k)] = d

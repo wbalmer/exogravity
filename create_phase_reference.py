@@ -157,22 +157,20 @@ visRefs = [oi.visOi.visRef.mean(axis=0)*0 for oi in objOis]
 for k in range(len(objOis)):
     planet_ind = cfg["general"]["reduce"][k]
     ampRef = np.zeros([oi.visOi.nchannel, oi.nwav])
-    visRef = np.zeros([oi.visOi.nchannel, oi.nwav])
-    for ind in cfg["planet_ois"][planet_ind]["star_indices"]:
-        # not all star files have been loaded, so we cannot trust the order and we need to explicitly look for the correct one
-        starOis_ind = [soi.filename for soi in starOis].index(DATA_DIR+cfg["star_ois"][ind]["filename"]) 
-        soi = starOis[starOis_ind]
-        visRef = visRef+soi.visOi.visRef.mean(axis = 0)
-#        ampRef = ampRef+soi.fluxOi.flux.mean(axis = 0).mean(axis = 0)#np.abs(soi.visOi.visRef.mean(axis = 0))
-        ampRef = ampRef+np.abs(soi.visOi.visRef.mean(axis = 0))
-    ###===### 
-#    visRef = np.zeros([oi.visOi.nchannel, oi.nwav])
-#    for ind in range(len(starOis)):
-#        soi = starOis[ind]
-#        visRef = visRef+soi.visOi.visRef.mean(axis = 0)                                                         
-    ###===###
-#    visRefs[k] = ampRef/len(cfg["planet_ois"][planet_ind]["star_indices"])*np.exp(1j*np.angle(visRef/len(objOis)))#/len(cfg["planet_ois"][planet_ind]["star_indices"])))#/len(starOis))) ###===###
-    visRefs[k] = ampRef/len(cfg["planet_ois"][planet_ind]["star_indices"])*np.exp(1j*np.angle(visRef/len(cfg["planet_ois"][planet_ind]["star_indices"])))#/len(starOis))) ###===###     
+    visRef = np.zeros([oi.visOi.nchannel, oi.nwav], "complex")
+    if cfg["general"]["calib_strategy"].lower()=="none":
+        ampRef = ampRef+1 # put the amplitude reference to one if no calibration strategy is used
+        visRefs[k] = ampRef
+    else: # otherwise, create the amplitude reference from the proper on-star observations
+        for ind in cfg["planet_ois"][planet_ind]["star_indices"]:
+            # not all star files have been loaded, so we cannot trust the order and we need to explicitly look for the correct one
+            starOis_ind = [soi.filename for soi in starOis].index(DATA_DIR+cfg["star_ois"][ind]["filename"]) 
+            soi = starOis[starOis_ind]
+            visRef = visRef+soi.visOi.visRef.mean(axis = 0)
+            #        ampRef = ampRef+soi.fluxOi.flux.mean(axis = 0).mean(axis = 0)#np.abs(soi.visOi.visRef.mean(axis = 0))
+            ampRef = ampRef+np.abs(soi.visOi.visRef.mean(axis = 0))
+        ampRef=ampRef/len(cfg["planet_ois"][planet_ind]["star_indices"])
+        visRefs[k] = ampRef*np.exp(1j*np.angle(visRef/len(cfg["planet_ois"][planet_ind]["star_indices"])))#/len(starOis))) ###===###
     
 # in DF_SWAP mode, thephase reference of the star cannot be used. We need to extract the phase ref from the SWAP observations
 if PHASEREF_MODE == "DF_SWAP":
@@ -214,9 +212,7 @@ if PHASEREF_MODE == "DF_SWAP":
     correction = unwrapped - testCase
     phaseRef = phaseRef - correction
     # for convenience, we store this ref in visRef angle, getting rid of the useless values from the star
-    visRefs = [2*np.abs(visRef)*np.exp(1j*phaseRef) for visRef in visRefs] # factor 2 because the beamspliter is used for on-star observations
-#    visRefs = [2*np.exp(1j*phaseRef) for visRef in visRefs] # factor 2 because the beamspliter is used for on-star observations
-#    visRefs = [2*np.abs(swapOis[k].visOi.visRef).mean(axis = 0)*np.exp(1j*phaseRef) for visRef in visRefs] # factor 2 because the beamspliter is used for on-star observations
+    visRefs = [2*np.abs(swapOis[0].visOi.visRef.mean(axis = 0))*np.exp(1j*phaseRef) for visRef in visRefs] # factor 2 because the beamspliter is used for on-star observations
 
 # SAVE VISREF IN THE FITS FILE
 for k in range(len(objOis)):

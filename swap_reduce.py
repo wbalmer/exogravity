@@ -97,10 +97,9 @@ else:
     N_OPD = 200
 
 # figdir to know where to put figures
-if "figdir" in dargs.keys():
+FIGDIR = cfg["general"]["figdir"]
+if "figdir" in dargs.keys(): # overwrite
     FIGDIR = dargs["figdir"]
-else:
-    FIGDIR = None
 
 # if figdir given, we need to import matplotlib and gravityPlot
 if FIGDIR:
@@ -256,26 +255,27 @@ f.close()
     
 # now its time to plot the chi2Maps in FIGDIR if given
 if not(FIGDIR is None):
-    for k in range(len(objOis)):
-        oi = objOis[k]
-        fig = plt.figure(figsize=(10, 8))
-        gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.visRef, oi.visOi.flag).mean(axis = 0), subtitles = oi.basenames, fig = fig)
-        gPlot.reImPlot(w, np.ma.masked_array(bestFits[k], oi.visOi.flag).mean(axis = 0), fig = fig)
-        plt.legend([oi.filename.split("/")[-1], "Astrometry fit"])
-        plt.savefig(FIGDIR+"/astrometry_fit_"+str(k)+".pdf")
-
-    fig = plt.figure(figsize = (10, 10))
-    n = int(np.ceil(np.sqrt(len(objOis))))
-    for k in range(len(objOis)):
-        ax = fig.add_subplot(n, n, k+1)
-        oi = objOis[k]
-        name = oi.filename.split('/')[-1]
-        if oi.swap:
-            ax.imshow(chi2Maps[k].T, origin = "lower", extent = [np.min(raValues_swap), np.max(raValues_swap), np.min(decValues_swap), np.max(decValues_swap)])
-        else:
-            ax.imshow(chi2Maps[k].T, origin = "lower", extent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)])            
-        ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
-        ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
-        ax.set_title(name)
-    plt.tight_layout()
-    plt.savefig(FIGDIR+"/astrometry_chi2Maps.pdf")
+    from matplotlib.backends.backend_pdf import PdfPages
+    with PdfPages(FIGDIR+"/swap_fit_results.pdf") as pdf:
+        for k in range(len(objOis)):
+            oi = objOis[k]
+            fig = plt.figure(figsize=(10, 8))
+            gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.visRef, oi.visOi.flag).mean(axis = 0), subtitles = oi.basenames, fig = fig)
+            gPlot.reImPlot(w, np.ma.masked_array(bestFits[k], oi.visOi.flag).mean(axis = 0), fig = fig)
+            plt.legend([oi.filename.split("/")[-1], "Astrometry fit"])
+            pdf.savefig()
+        fig = plt.figure(figsize = (10, 10))
+        n = int(np.ceil(np.sqrt(len(objOis))))
+        for k in range(len(objOis)):
+            ax = fig.add_subplot(n, n, k+1)
+            oi = objOis[k]
+            name = oi.filename.split('/')[-1]
+            if oi.swap:
+                ax.imshow(chi2Maps[k].T, origin = "lower", extent = [np.min(raValues_swap), np.max(raValues_swap), np.min(decValues_swap), np.max(decValues_swap)])
+            else:
+                ax.imshow(chi2Maps[k].T, origin = "lower", extent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)])            
+            ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
+            ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
+            ax.set_title(name)
+        plt.tight_layout()
+        pdf.savefig()
