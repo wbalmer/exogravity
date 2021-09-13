@@ -117,6 +117,7 @@ if "figdir" in dargs.keys():
 if not(FIGDIR is None):
     from cleanGravity import gravityPlot as gPlot
     import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_pdf import PdfPages        
     import matplotlib
     if not(os.path.isdir(FIGDIR)):
         os.makedirs(FIGDIR)
@@ -505,18 +506,18 @@ if (GO_FAST==False):
         printinf("A total of {:d} bad points have be reflagged for file {}".format(len(indx[0]), oi.filename))
 
 if not(FIGDIR is None):
-    for k in range(len(objOis)):
-        oi = objOis[k]
-        fig = plt.figure(figsize = (10, 8))
-        gPlot.reImPlot(w, (oi.visOi.visPlanet*(1-oi.visOi.flag)).mean(axis = 0)*np.exp(-1j*np.angle(visRefs[k])), subtitles = oi.basenames, fig = fig)
-        gPlot.reImPlot(w, oi.visOi.visPlanetFit.mean(axis = 0)*np.exp(-1j*np.angle(visRefs[k])), fig = fig)
-        plt.savefig(FIGDIR+"/spectrum_fit_"+str(k)+".pdf")
-    fig = plt.figure(figsize=(10, 4))
-    plt.plot(wav, C, '.-')
-    plt.xlabel("Wavelength ($\mu\mathrm{m}$)")
-    plt.ylabel("Contrast")
-    plt.savefig(FIGDIR+"/contrast.pdf")
-
+    with PdfPages(FIGDIR+"/spectrum_fit_results.pdf") as pdf:
+        fig = plt.figure(figsize=(10, 4))
+        plt.plot(wav, C, '.-')
+        plt.xlabel("Wavelength ($\mu\mathrm{m}$)")
+        plt.ylabel("Contrast")
+        pdf.savefig()                   
+        for k in range(len(objOis)):
+            oi = objOis[k]
+            fig = plt.figure(figsize = (10, 8))
+            gPlot.reImPlot(w, (oi.visOi.visPlanet*(1-oi.visOi.flag)).mean(axis = 0)*np.exp(-1j*np.angle(visRefs[k])), subtitles = oi.basenames, fig = fig)
+            gPlot.reImPlot(w, oi.visOi.visPlanetFit.mean(axis = 0)*np.exp(-1j*np.angle(visRefs[k])), fig = fig)
+            pdf.savefig()           
     
 if dargs['save_residuals']:    
     for k in range(len(objOis)):
@@ -526,231 +527,3 @@ if dargs['save_residuals']:
         np.save(FIGDIR+"/"+name+"_spectrum_residuals.npy", visRes)
 
         
-stop()
-
-
-# ACTUAL CODE ENDS HERE!!!
-
-
-
-
-
-# spectrum calibration for plot
-wav_grav = oi.wav*1e6
-#(starWav, starFlux) = exosed.utilities.convertSpectrum(starSpectrum, instrument = 'gravity-midres', resolution = 200000)
-#star = np.interp(wav_grav, starWav, starFlux)
-
-diagErrors = np.array([Cerr[k, k] for k in range(len(C))])**0.5
-
-fig = plt.figure(figsize = (10, 6))
-
-ax1 = fig.add_subplot(211)
-ax1.errorbar(wav_grav, C, yerr = diagErrors, fmt = '.')
-
-ax2 = fig.add_subplot(212, sharex = ax1)
-#ax2.errorbar(wav_grav, C*star, yerr = diagErrors*star, fmt = '.')
-
-ax1.set_xlabel("Wavelength ($\mu\mathrm{m}$)")
-ax2.set_xlabel("Wavelength ($\mu\mathrm{m}$)")
-ax1.set_ylabel("Contrast")
-ax2.set_ylabel("Flux")
-
-fig.tight_layout()
-
-# save the data
-data = np.zeros([len(wav), 2])
-data[:, 0] = wav
-data[:, 1] = np.dot(A, B)
-#np.savetxt("betapicb_contrast.txt", data)
-#np.savetxt("betapicb_errors.txt", Cerr)
-
-
-
-
-stop
-
-"""
-data = np.loadtxt('results_5648/betapicb_contrast.txt')
-C = data[:, 1]
-
-all_coeffs = []
-ind = np.zeros([6, 400])
-for c in range(objOis[0].visOi.nchannel):
-    ind[c, :] = range(400)
-w = np.zeros([6, objOis[0].nwav])
-for c in range(objOis[0].visOi.nchannel):
-    w[c, :] = objOis[0].wav
-# fit the slope
-pbar = patiencebar.Patiencebar(valmax = len(objOis))
-for k in range(len(objOis)):
-    pbar.update()
-    oi = objOis[k]
-    coeffs = np.zeros([oi.visOi.ndit, 6, 2])    
-    Y = np.zeros([oi.visOi.nchannel, oi.nwav], 'complex64')    
-    Yfit = np.zeros([oi.visOi.nchannel, oi.nwav], 'complex64')
-    for dit in range(oi.visOi.ndit):
-        for c in range(oi.visOi.nchannel):
-            m = int(oi.visOi.m[dit, c])                                    
-            X = np.zeros([m, 2], 'complex64')
-            H = oi.visOi.h_matrices[dit, c, 0:m, :]
-            U = np.dot(H, oi.visOi.visRef[dit, c, :])
-            U2 = gravity.conj_extended(U)            
-            G = np.diag(np.abs(totalVisRef[c, :]))
-            Lambda = np.diag((oi.wav - np.mean(oi.wav))*1e6)
-            X[:, 0] = np.dot(np.dot(H, G), C)
-            X[:, 1] = np.dot(np.dot(H, G), np.dot(Lambda, C))
-            X2 = gravity.conj_extended(X)
-            Rcov = np.diag(oi.visOi.visErr[dit, c, :].real)**2
-            Icov = np.diag(oi.visOi.visErr[dit, c, :].imag)**2
-            Omega = np.diag(oi.visOi.phi_values[dit, c, :])
-            W = np.dot(np.dot(Omega, Rcov+Icov), gravity.adj(Omega))
-            Z = np.dot(np.dot(Omega, Rcov-Icov), Omega.T)        
-            W = np.dot(np.dot(H, W), gravity.adj(H))
-            Z = np.dot(np.dot(H, Z), H.T)        
-            W2 = gravity.extended_covariance(W, Z)                         
-            W2 = gravity.extended_covariance(W, Z)
-            W2inv = np.linalg.inv(W2)
-            K = np.real(np.dot(np.dot(gravity.adj(X2), W2inv), X2))
-            A = np.dot(np.real(np.dot(np.dot(gravity.adj(U2), W2inv), X2)), np.linalg.pinv(K))
-            coeffs[dit, c, :] = np.real(A)
-            Xp = np.zeros([oi.nwav, 2], 'complex64')
-            Xp[:, 0] = np.dot(G, C)
-            Xp[:, 1] = np.dot(G, np.dot(Lambda, C))
-            Yfit[c, :] = Yfit[c, :] + np.dot(A, Xp.T)
-    all_coeffs.append(coeffs)            
-    fig = plt.figure()
-    gravity.reImPlot(w, oi.visOi.visRef.sum(axis = 0), fig = fig, subtitles = oi.basenames)
-    gravity.reImPlot(w, Yfit, fig = fig)
-
-coeffs = np.concatenate(all_coeffs)
-
-fig = plt.figure()
-gravity.baselinePlot(ind, coeffs[:, :, 0].T, fig = fig, subtitles = oi.basenames)
-
-fig = plt.figure()
-gravity.baselinePlot(ind, coeffs[:, :, 1].T/coeffs[:, :, 0].T, fig = fig, subtitles = oi.basenames)
-
-
-slopes = np.zeros([objOis[0].visOi.nchannel, objOis[0].nwav])
-for c in range(objOis[0].visOi.nchannel):
-    slopes[c, :] = coeffs[:, :, 1].mean(axis = 0)[c]*(objOis[0].wav - np.mean(objOis[0].wav))*1e6+coeffs[:, :, 0].mean(axis = 0)[c]
-fig = plt.figure()
-gravity.baselinePlot(w, slopes, fig = fig, subtitles = oi.basenames)
-"""
-
-
-### NORMALIZE ###
-
-# ESO K filter
-data = np.loadtxt("eso_filter_K.txt", skiprows = 4)
-eso_wav = data[:, 0]
-eso_filt = data[:, 1]
-wav = eso_wav
-
-# star spectrum
-starWav = val[:, 0]
-starFlux = val[:, 1]
-
-# ESO K mag calib
-eso_filt_interp = np.interp(starWav, eso_wav, eso_filt)
-flux = np.trapz(eso_filt_interp*starFlux, starWav)/0.33
-eso_zp = 4.12e-10
-eso_mag = 5.687
-eso_flux = eso_zp*10**(-eso_mag/2.5)
-
-plt.figure()
-plt.plot(starWav, starFlux)
-plt.plot(starWav, starFlux*eso_filt_interp)
-
-norm = eso_flux / flux
-
-"""
-stop
-
-# conversion to gaia mag
-starPhotons = starFlux  * (starWav)/(10**6*6.626e-34*299792458.0) # planck constant and speed of light. photon flux phot/s/m^2
-g_interp = np.interp(starWav, wav, g)
-betapic_gaia_flux = np.trapz(g_interp*starPhotons, starWav)*0.7278 # telescope surface
-betapic_gaia_mag = gaia_zeropoint - 2.5*np.log(betapic_gaia_flux)/np.log(10)
-print(betapic_gaia_mag)
-norm = 10**((betapic_gaia_mag - 3.72)/2.5)
-"""
-
-"""
-# GRAVITY
-hdu = fits.open("spectra/Mickael/Synthetic_spectrum_BpicA.fits")[0]
-data = hdu.data
-ind = np.where((data[:, 0] < 3.0) & (data[:, 0] > 1.5))[0]
-starSpectrum = exosed.Spectrum(data[ind, 0], data[ind, 1])
-(starWav, starFlux) = exosed.utilities.convertSpectrum(starSpectrum, instrument = 'gravity-midres', resolution = 20000)
-starWav = starSpectrum.wav
-starFlux = starSpectrum.flux
-data = np.loadtxt(GRAVITY_SPECTRUM)
-raw_wav = data[:, 0]/10.0
-star = np.interp(raw_wav, starWav, starFlux)
-raw_flux = data[:, 1]*star#*norm
-W = np.loadtxt(GRAVITY_SPECTRUM_ERR)
-raw_flux_err = np.array([W[k, k]**0.5 for k in range(len(raw_wav))])*star#*norm
-
-# GPI
-data = np.loadtxt("spectra/gpi_spectrum.txt")
-wav_gpi = data[:, 0]
-flux_gpi = data[:, 1]
-flux_err_gpi = data[:, 2]
-flux_gpi[-44:-33] = float('nan')
-
-# photometry
-zero_point = 3.961e-11*1e4*1e-7*1e4 # W/s/cm2/micron 
-bpic_mag = 3.48
-mag = np.array([9.2, 9.02, 8.92, 8.8])
-mag_err = np.array([0.1, 0.13, 0.13, 0.6])
-phot_wav = np.array([2.159, 2.174, 2.174, 2.174])
-phot_wav_err = np.array([0.324, 0.269, 0.269, 0.269])/2.0
-d_bpic = 19.44
-d_vega = 7.68
-
-phot = (10**(-(bpic_mag+mag)/2.5)*zero_point)#*(d_vega/d_bpic)**2
-phot_err = ( (10**(-(bpic_mag+mag+mag_err)/2.5) - 10**(-(bpic_mag+mag)/2.5))*zero_point )#*(d_vega/d_bpic)**2
-
-plt.figure(figsize=(10,6));
-plt.errorbar(raw_wav, 1e14*raw_flux, yerr = 1e14*raw_flux_err, fmt = 'o')
-plt.errorbar(raw_wav, 1e14*raw_flux*norm, yerr = 1e14*raw_flux_err*norm, fmt = 'o')
-plt.errorbar(wav_gpi, 1e14*flux_gpi, yerr = 1e14*flux_err_gpi, fmt = 'o')
-plt.errorbar(phot_wav[1:], 1e14*phot[1:], xerr = phot_wav_err[1:], yerr = 1e14*phot_err[1:], fmt = 's', capsize=8)
-plt.errorbar(phot_wav[0:1], 1e14*phot[0:1], xerr = phot_wav_err[0:1], yerr = 1e14*phot_err[0:1], fmt = 's', capsize=8)
-plt.legend(["Gravity calib Mickael", "Gravity ESO K calib", "GPI", "GPI NICI photometry", "VLT NACO photometry"])
-plt.xlim(1.8, 2.6)
-plt.ylim(0.2, 0.9)
-plt.xlabel("Wavelength ($\mu\mathrm{m}$)")
-plt.ylabel("Flux ($\\times{}10^{-14}\mathrm{W}\,\mathrm{m}^{-2}\mu\mathrm{m}^{-1}$)")
-"""
-
-
-norm = 1.54e-6
-
-C08 = np.loadtxt("contrast_08.txt")
-diagErrors08 = np.loadtxt("contrast_err_08.txt")
-
-C07 = np.loadtxt("contrast_07.txt")
-diagErrors07 = np.loadtxt("contrast_err_07.txt")
-
-data = np.loadtxt("hd206893.csv", delimiter = ";")
-flux_h = data[:-6, 1]
-wav_h = data[:-6, 0]
-
-wav_mag = data[-6:-4, 0]
-mag = data[-6:-4, 1]
-mag_err = mag - data[-4::2, 1]
-
-plt.figure()
-plt.errorbar(wav_grav, C08*star*norm*1e15, yerr = diagErrors08*star*norm*1e15, fmt = '.', capsize=2, color = "gray", alpha = 0.7)
-plt.errorbar(wav_grav, C07*star*norm*1e15, yerr = diagErrors07*star*norm*1e15, fmt = '.', capsize=2, color = "orange", alpha = 0.7)
-#plt.plot(wav_h, flux_h*1e15, 'o')
-plt.errorbar(wav_mag, mag*1e15, yerr = mag_err*1e15, fmt = ".k", markersize = 15, linewidth = 2, capsize = 10)
-
-plt.plot(wav_grav, (C08+C07)/2*1e15*star*norm, 'o--')
-
-plt.xlabel("Wavelength ($\mu$m)")
-plt.ylabel("Flux ($\\times{}10^{-15}\mathrm{W}\mathrm{m}^{-2}\mathrm{s}^{-1}\mu{}\mathrm{m}^{-1}$)")
-
-plt.legend(["IRDIS $K1$ and $K_2$ mag", "GRAVITY July 2019", "GRAVITY Aug 2019"])

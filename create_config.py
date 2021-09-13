@@ -23,8 +23,8 @@ Args:
                                  Default is None, which is a constant contrast (as a function of wavelength).
   star_order (int, optional): the order of the polynomial used to fit the stellar component of the visibility (default is 4)
   star_diameter (float, optional): the diameter of the central star (in mas, to scale the visibility amplitude). Default is 0. 
-  corr_met (str, optional): can be "sylvestre" or "drs", or possibly "none" depending on which formula to use for the metrology correction
-  corr_disp (str, optional): can be "sylvestre" or "drs", or possibly "none" depending on which formula to use for the dispersion correction
+  corr_met (str, optional): can be "sylvestre" or "drs", or possibly "none" depending on which formula to use for the metrology correction. Default is sylvestre
+  corr_disp (str, optional): can be "sylvestre" or "drs", or possibly "none" depending on which formula to use for the dispersion correction. Default is sylvestre
   extension (int, optional): the FITS extension to use, which depends on the polarization in the data. Deafult to 10 (combined).
   swap_target (str, optional): the name of the target for the swap observations if off-axis mode
   calib_strategy (str, optional): "all" to use all star files to calibrate visibility reference. "Nearest" to use the two nearest. On-axis only. "None" to skip calibration
@@ -32,7 +32,7 @@ Args:
   reduction (str, optional, indev): default is "astrored". You can select "dualscivis".
   ft_flux_threshold (float, optional): if positive, all data with ft flux below this number times the mean ft flux for on star observation are removed (default 0.2)
   phaseref_arclength_threshold (float, optional): if positive, the arclength of the polyfit to phaseref is calculated for each dit and baseline, and the data with an arclength 
-                                                  greater that this threshold are removed. Default: 2.5
+                                                  greater that this threshold are removed. Default: 5
  
 Example:
   Minimal
@@ -154,8 +154,8 @@ if not("reduction" in dargs.keys()):
     dargs["reduction"] = "astrored"
 
 if not("phaseref_arclength_threshold" in dargs.keys()):
-    printwar("phaseref_arclength_threshold not given. Using default value of 2.5")
-    dargs["phaseref_arclength_threshold"] = 2.5
+    printwar("phaseref_arclength_threshold not given. Using default value of 5")
+    dargs["phaseref_arclength_threshold"] = 5
 if not("ft_flux_threshold" in dargs.keys()):
     printwar("ft_flux_threshold not given. Using default value of 0.2")
     dargs["ft_flux_threshold"] = 0.2
@@ -235,7 +235,7 @@ general = {"datadir": dargs["datadir"],
            "reflag": dargs['reflag'],           
            "contrast_file": dargs['contrast_file'],
            "figdir": None,
-           "save_residuals": True,           
+           "save_residuals": False,           
            "n_opd": int(dargs["nopd"]),
            "n_ra": int(dargs["nra"]),
            "n_dec": int(dargs["ndec"]),
