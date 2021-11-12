@@ -91,29 +91,32 @@ print("K-band contrast: {:.3f}".format(mag_contrast))
 # plot
 if dargs["fig"] is None:
     fig = plt.figure(figsize=(12,8))
+    ax1 = fig.add_subplot(211)
+    ax2 = fig.add_subplot(212)        
 else:
     fig = plt.figure(int(dargs["fig"]))
+    ax1 = fig.get_axes()[0]
+    ax2 = fig.get_axes()[1]    
 
 # contrast spectrum
-ax1 = fig.add_subplot(211)
 if dargs['noerr']:
     ax1.plot(wav, contrast*1e4, 'gray')
 else:
     ax1.errorbar(wav, contrast*1e4, yerr=contrastErr*1e4, fmt = '.', color = dargs["color"], capsize=2, markeredgecolor = 'k')
-ax1.set_ylabel("Contrast ($\\times{}10^{-4}$)")
-ax1.set_xlabel("Wavelength ($\mu\mathrm{m})$")
-
-if not(dargs["notitle"]):
-    plt.title(dargs["file"].split('/')[-1])
+if dargs["fig"] is None:        
+    ax1.set_ylabel("Contrast ($\\times{}10^{-4}$)")
+    ax1.set_xlabel("Wavelength ($\mu\mathrm{m})$")
+    if not(dargs["notitle"]):
+        ax1.set_title(dargs["file"].split('/')[-1])
 
 # flux spectrum
-ax2 = fig.add_subplot(212, sharex=ax1)
 if dargs['noerr']:
     ax2.plot(wav, flux*1e15, color = dargs['color'])
 else:
     ax2.errorbar(wav, flux*1e15, yerr=fluxErr*1e15, fmt = '.', color = dargs['color'], capsize=2, markeredgecolor = 'k')
-ax2.set_ylabel("Flux ($10^{-15}\,\mathrm{W}/\mathrm{m}^2/\mu\mathrm{m}$)")
-ax2.set_xlabel("Wavelength ($\mu\mathrm{m}$)")
+if dargs["fig"] is None:    
+    ax2.set_ylabel("Flux ($10^{-15}\,\mathrm{W}/\mathrm{m}^2/\mu\mathrm{m}$)")
+    ax2.set_xlabel("Wavelength ($\mu\mathrm{m}$)")
 
 # show figure only is fig not given
 if dargs["fig"] is None:
