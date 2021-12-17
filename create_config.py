@@ -9,6 +9,7 @@ used by the other scripts, formatted in YAML to be easily loaded as a Python dic
 Args:
   datadir (str): the directory in which the fits files are located
   output (str): name (with full path) of the yml file in which to store the resulting configuration
+  figdir (str, optional): name of a directory where to store the output PDF files (not created if no figdir given)
   ralim (range, optional): specify the RA range (in mas) over which to search for the astrometry: Example: ralim=[142,146]
   declim (range, optional): same as ralim, for declination
   nra, ndec (int, optional): number of points over the RA and DEC range (the more points, the longer the calculation)
@@ -163,6 +164,10 @@ if not("ignore_baselines" in dargs.keys()):
     printwar("By default, no baseline will be ignored. Add baseline indices to 'ignore_baselines' in the yml to ignore some baselines.")
     dargs["ignore_baselines"] = []
 
+if not("figdir" in dargs.keys()):
+    printwar("No figdir given. The output PDF will not be created, and only the terminal output will be available.")
+    dargs["figdir"] = None
+
 
     
 # load the datafiles
@@ -234,7 +239,7 @@ general = {"datadir": dargs["datadir"],
            "noinv": dargs['noinv'],
            "reflag": dargs['reflag'],           
            "contrast_file": dargs['contrast_file'],
-           "figdir": None,
+           "figdir": dargs["figdir"],
            "save_residuals": False,           
            "n_opd": int(dargs["nopd"]),
            "n_ra": int(dargs["nra"]),
