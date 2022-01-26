@@ -209,11 +209,17 @@ for k in range(len(datafiles)):
         printinf(msg+"Assuming file to be on planet.")
         objOis.append(oi)
 
+# select the field of the default chi2Maps depending if observations are from UTs or ATs
+if (objOis[0].stationNames[0] == "U1"):
+    FIELD = 30 # UT field
+else:
+    FIELD = 120 # UT field
+
 if ((dargs["ralim"] is None) or (dargs["ralim"] is None)):
     ra = np.mean(np.array([oi.sObjX for oi in objOis]))
-    ralim = [float(ra)-15, float(ra)+15] # get rid of numpy type so that yaml conversion works
+    ralim = [float(ra)-FIELD/2, float(ra)+FIELD/2] # get rid of numpy type so that yaml conversion works
     dec = np.mean(np.array([oi.sObjY for oi in objOis]))
-    declim = [float(dec)-15, float(dec)+15]
+    declim = [float(dec)-FIELD/2, float(dec)+FIELD/2]
 else:
     ralim = [float(r) for r in dargs["ralim"].split(']')[0].split('[')[1].split(',')]
     declim = [float(r) for r in dargs["declim"].split(']')[0].split('[')[1].split(',')]
