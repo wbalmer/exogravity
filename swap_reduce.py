@@ -10,7 +10,6 @@ Args:
   config_file (str): path to the YAML configuration file. Only used to retrieve the path to the SWAP files of the observation. 
   ralim (range): specify the RA range (in mas) over which to search for the astrometry: Example: ralim=[142,146]
   declim (range): same as ralim, for declination
-  raguess, decguess (float): your best guess for the RA and DEC of the binary (in mas). Used to recenter the phases at the beginning of the reduction.
   nra, ndec (int, optional): number of points over the RA and DEC range (the more points, the longer the calculation). Default is 100.
   gofast (bool, optional): if set, average over DITs to accelerate calculations (Usage: --gofast, or gofast=True)
 
@@ -53,7 +52,7 @@ if "help" in dargs.keys():
     stop()
     
 
-REQUIRED_ARGS = ["config_file", "raguess", "decguess", "ralim", "declim"]
+REQUIRED_ARGS = ["config_file"]
 for req in REQUIRED_ARGS:
     if not(req in dargs.keys()):
         printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
@@ -76,42 +75,37 @@ SWAP_FILES = [DATA_DIR+cfg["swap_ois"][k]["filename"] for k in cfg["swap_ois"].k
 
 # load other parameters
 if "gofast" in dargs.keys():
-    GO_FAST = dargs["gofast"]
+    GO_FAST = dargs["gofast"].lower()=="true" # bypass value from config file
 else: # default is False
     GO_FAST = False
-if "unwrap" in dargs.keys(): # experimental
-    UNWRAP = dargs["unwrap"]
-else: # default is False
-    UNWRAP = False    
-if "nra" in dargs.keys():
-    N_RA = int(dargs["nra"])
-else:
-    N_RA = 100
-if "ndec" in dargs.keys():
-    N_DEC = int(dargs["ndec"])
-else:
-    N_DEC = 100
-if "nopd" in dargs.keys():
-    N_OPD = int(dargs["nopd"])
-else:
-    N_OPD = 200
+    
+if not("ralim" in dargs.keys()) or not("declim" in dargs.keys()):
+    printwar("ralim or declim not provided in args. Default: fiber position +/- 30 mas (UTs) or +/- 120 mas (ATs).")
+    dargs["ralim"] = None
+    dargs["declim"] = None
 
+if not("nra" in dargs.keys()):
+    printwar("nra not provided in args. Default: nra=100")
+    dargs["nra"] = 100
+if not("ndec" in dargs.keys()):
+    printwar("ndec not provided in args. Default: ndec=100")
+    dargs["ndec"] = 100
+    
 # figdir to know where to put figures
 FIGDIR = cfg["general"]["figdir"]
 if "figdir" in dargs.keys(): # overwrite
     FIGDIR = dargs["figdir"]
 
-# if figdir given, we need to import matplotlib and gravityPlot
-if FIGDIR:
-    import matplotlib.pyplot as plt
+# LOAD GRAVITY PLOT is savefig requested
+if not(FIGDIR is None):
     from cleanGravity import gravityPlot as gPlot
+    import matplotlib.pyplot as plt
+    import matplotlib
+    from matplotlib.backends.backend_pdf import PdfPages    
+    if not(os.path.isdir(FIGDIR)):
+        os.makedirs(FIGDIR)
+        printinf("Directory {} was not found and has been created".format(FIGDIR))
     
-RA_LIM = [float(r) for r in dargs["ralim"].split(']')[0].split('[')[1].split(',')]
-DEC_LIM = [float(r) for r in dargs["declim"].split(']')[0].split('[')[1].split(',')]
-
-RA_GUESS = float(dargs["raguess"])
-DEC_GUESS = float(dargs["decguess"])
-
 # retrieve all astrored files from the datadir
 printinf("Found a total of {:d} astroreduced files in {}".format(len(SWAP_FILES), DATA_DIR))
 
@@ -149,98 +143,70 @@ if (GO_FAST):
         oi.visOi.recenterPhase(oi.sObjX, oi.sObjY) # mean should be calculated in the frame of the SC
         oi.computeMean()
         oi.visOi.recenterPhase(-oi.sObjX, -oi.sObjY) # back to original (FT) frame        
-    
+
 # calculate the useful w for plotting
 w = np.zeros([6, oi.nwav])
 for k in range(6):
     w[k, :] = oi.wav*1e6
 
-# we need to coadd the elements of each group
-# this is best done in in the SC reference frame to avoid issues with rapid oscillations of the phase
-# so we need to shift the OBs to the SC frame. We could use the fiber position (oi.visOi.sObjX and Y)
-# but sometimes the target is not correctly centered. So the user has to supply an estimate of the
-# astrometry of the target
-printinf("Recentering OBs on SC position")
-for oi in ois1+ois2:
-    if oi.swap:
-        oi.visOi.recenterPhase(-RA_GUESS, -DEC_GUESS)        
-    else:
-        oi.visOi.recenterPhase(RA_GUESS, DEC_GUESS)        
-
-# coadd elements in each group to obtain a reference visibility at each position of the swap
-visRefS1 = 0*oi.visOi.visRef.mean(axis = 0)
-visRefS2 = 0*oi.visOi.visRef.mean(axis = 0)
-printinf("Calculating reference visibility for group 1")
-for k in range(len(ois1)):
-    oi = ois1[k]
-    visRefS1 = visRefS1+oi.visOi.visRef.mean(axis = 0)
-visRefS1 = visRefS1/len(ois1)
-printinf("Calculating reference visibility for group 2")
-for k in range(len(ois2)):
-    oi = ois2[k]
-    visRefS2 = visRefS2+oi.visOi.visRef.mean(axis = 0)
-visRefS2 = visRefS2/len(ois2)
-
-# the phase ref is the average of the phase of the two groups
-printinf("Calculating phase ref")
-phaseRef = 0.5*(np.angle(visRefS1)+np.angle(visRefS2))
-
-# unwrap
-if UNWRAP:
-    printinf("Unwrapping the visibilities")
-    testCase = np.angle(ois1[0].visOi.visRef.mean(axis = 0))-phaseRef
-    unwrapped = 0.5*np.unwrap(2*testCase)
-    correction = unwrapped - testCase
-    phaseRef = phaseRef - correction
-
-# subtract the phase reference
-printinf("Phase referencing OBs")
-for oi in ois1+ois2:
-    oi.visOi.addPhase(-phaseRef)
-
-
-# recenter each OB on its initial position
-printinf("Recentering OBs on initial positions")
-for oi in ois1+ois2:
-    if oi.swap:
-        oi.visOi.recenterPhase(RA_GUESS, DEC_GUESS)
-    else:
-        oi.visOi.recenterPhase(-RA_GUESS, -DEC_GUESS)        
+# select the field of the default chi2Maps depending if observations are from UTs or ATs
+if (objOis[0].stationNames[0] == "U1"):
+    FIELD = 30 # UT field
+else:
+    FIELD = 120 # UT field
+if ((dargs["ralim"] is None) or (dargs["declim"] is None)):
+    ra = np.mean(np.array([oi.sObjX for oi in ois2])) # ois2 are the unswapped position
+    dec = np.mean(np.array([oi.sObjY for oi in ois2]))
+    ralim = [float(ra)-FIELD/2, float(ra)+FIELD/2] # get rid of numpy type so that yaml conversion works    
+    declim = [float(dec)-FIELD/2, float(dec)+FIELD/2]
+else:
+    ralim = [float(r) for r in dargs["ralim"].split(']')[0].split('[')[1].split(',')]
+    declim = [float(r) for r in dargs["declim"].split(']')[0].split('[')[1].split(',')]    
+printinf("RA grid set to [{:.2f}, {:.2f}] with {:d} points".format(ralim[0], ralim[1], dargs["nra"]))
+printinf("DEC grid set to [{:.2f}, {:.2f}] with {:d} points".format(declim[0], declim[1], dargs["ndec"]))
 
 # prepare chi2Maps
-printinf("RA grid: [{:.2f}, {:.2f}] with {:d} points".format(RA_LIM[0], RA_LIM[1], N_RA))
-printinf("DEC grid: [{:.2f}, {:.2f}] with {:d} points".format(DEC_LIM[0], DEC_LIM[1], N_DEC))
-raValues = np.linspace(RA_LIM[0], RA_LIM[1], N_RA)
-decValues = np.linspace(DEC_LIM[0], DEC_LIM[1], N_DEC)
-raValues_swap = np.linspace(-RA_LIM[1], -RA_LIM[0], N_RA)
-decValues_swap = np.linspace(-DEC_LIM[-1], -DEC_LIM[0], N_DEC)
-chi2Maps = np.zeros([len(objOis), N_RA, N_DEC])
-bestFits = []
-# to store best fits values on each file
-raBests = np.zeros(len(objOis))
-decBests = np.zeros(len(objOis))
+N_RA = dargs["nra"]
+N_DEC = dargs["ndec"]
+raValues = np.linspace(ralim[0], ralim[1], N_RA)
+decValues = np.linspace(declim[0], declim[1], N_DEC)
+chi2Map = np.zeros([N_RA, N_DEC])
+# to keep track of the best fit
+chi2Best = np.inf
+bestFit = np.zeros([oi.visOi.nchannel, oi.visOi.nwav], "complex")
+raBest = 0
+decBest = 0
 
-# calculate chi2Maps using the fitAstrometry method, which itself call fitVisRefOpd
-for k in range(len(objOis)):
-    oi = objOis[k]
-    if oi.swap:
-        fitAstro = oi.visOi.fitVisRefAstrometry(raValues_swap, decValues_swap, nopd=N_OPD)
-    else:
-        fitAstro = oi.visOi.fitVisRefAstrometry(raValues, decValues, nopd=N_OPD)        
-    chi2Maps[k, :, :] = fitAstro["map"]
-    bestFits.append(fitAstro["fit"])
-    raBests[k] = fitAstro["best"][0]
-    decBests[k] = fitAstro["best"][1]
-
-# calculate the best RA and DEC taking into account swap mode:
-raBest_swap = np.mean(np.array([raBests[k] for k in range(len(objOis)) if objOis[k].swap]))
-decBest_swap = np.mean(np.array([decBests[k] for k in range(len(objOis)) if objOis[k].swap]))
-raBest = np.mean(np.array([raBests[k] for k in range(len(objOis)) if not(objOis[k].swap)]))
-decBest = np.mean(np.array([decBests[k] for k in range(len(objOis)) if not(objOis[k].swap)]))
-
-printinf("Astrometric solution found using NO SWAP file: RA={:f} mas, DEC={:f} mas".format(raBest, decBest))
-printinf("Astrometric solution found using SWAP files: RA={:f} mas, DEC={:f} mas".format(raBest_swap, decBest_swap))
-
+# start the fit
+for i in range(N_RA):
+    ra = raValues[i]    
+    printinf("Calculating chi2 map for ra value {} ({}/{})".format(ra, i+1, N_RA))
+    for j in range(N_DEC):
+        dec = decValues[j]
+        # reference visibility for group 1        
+        visRefS1 = 0*oi.visOi.visRef.mean(axis = 0)
+        # reference visibility for group 2                
+        visRefS2 = 0*oi.visOi.visRef.mean(axis = 0)        
+        for oi in ois1+ois2:
+            this_u = (ra*oi.visOi.uCoord + dec*oi.visOi.vCoord)/1e7
+            phase = 2*np.pi*this_u*1e7/3600.0/360.0/1000.0*2*np.pi
+            phi = np.exp(1j*phase)
+            if oi.swap:
+                visRefS1 = visRefS1+(np.conj(phi)*oi.visOi.visRef).mean(axis = 0)
+            else:
+                visRefS2 = visRefS2+(phi*oi.visOi.visRef).mean(axis = 0)                
+        visRefS1 = visRefS1/len(ois1)
+        visRefS2 = visRefS2/len(ois2)
+        visRefSwap = np.sqrt(visRefS1*np.conj(visRefS2))
+        chi2Map[i, j] = np.sum(np.imag(visRefSwap)**2)
+        if chi2Map[i, j] < chi2Best:
+            chi2Best = chi2Map[i, j]
+            raBest = ra
+            decBest = dec
+            bestFit = np.real(visRefSwap)+0j
+            visRefSwapBest = visRefSwap
+            
+printinf("Best astrometry solution: RA={}, DEC={}".format(raBest, decBest))
 # get the astrometric values and calculate the mean, and add it to the YML file (same value for all swap Ois)
 for key in cfg['swap_ois'].keys():
     cfg["swap_ois"][key]["astrometric_solution"] = [float(raBest), float(decBest)] # YAML cannot convert numpy types
@@ -253,29 +219,67 @@ else:
     f.write(yaml.safe_dump(cfg, default_flow_style = False)) 
 f.close()
     
+# we'll need the phase reference for the plots
+for oi in ois1+ois2:
+    if oi.swap:
+        oi.visOi.recenterPhase(-raBest, -decBest)        
+    else:
+        oi.visOi.recenterPhase(raBest, decBest)
+
+# coadd elements in each group to obtain a reference visibility at each position of the swap            
+visRefS1 = 0*oi.visOi.visRef.mean(axis = 0)
+visRefS2 = 0*oi.visOi.visRef.mean(axis = 0)
+printinf("Calculating reference visibility for group 1")
+for k in range(len(ois1)):
+    oi = ois1[k]
+    visRefS1 = visRefS1+oi.visOi.visRef.mean(axis = 0)
+visRefS1 = visRefS1/len(ois1)
+printinf("Calculating reference visibility for group 2")
+for k in range(len(ois2)):
+    oi = ois2[k]
+    visRefS2 = visRefS2+oi.visOi.visRef.mean(axis = 0)
+visRefS2 = visRefS2/len(ois2)
+printinf("Recentering OBs on initial positions")
+for oi in ois1+ois2:
+    if oi.swap:
+        oi.visOi.recenterPhase(raBest, decBest)
+    else:
+        oi.visOi.recenterPhase(-raBest, -decBest)        
+
+# the phase ref is the average of the phase of the two groups
+printinf("Calculating phase ref")
+phaseRef = np.angle(0.5*(visRefS1+visRefS2))
+
+# remove phaseRef from OBs
+for oi in objOis:
+    oi.visOi.addPhase(-phaseRef)
+
 # now its time to plot the chi2Maps in FIGDIR if given
 if not(FIGDIR is None):
-    from matplotlib.backends.backend_pdf import PdfPages
     with PdfPages(FIGDIR+"/swap_fit_results.pdf") as pdf:
+        
         for k in range(len(objOis)):
             oi = objOis[k]
             fig = plt.figure(figsize=(10, 8))
             gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.visRef, oi.visOi.flag).mean(axis = 0), subtitles = oi.basenames, fig = fig)
-            gPlot.reImPlot(w, np.ma.masked_array(bestFits[k], oi.visOi.flag).mean(axis = 0), fig = fig)
-            plt.legend([oi.filename.split("/")[-1], "Astrometry fit"])
-            pdf.savefig()
-        fig = plt.figure(figsize = (10, 10))
-        n = int(np.ceil(np.sqrt(len(objOis))))
-        for k in range(len(objOis)):
-            ax = fig.add_subplot(n, n, k+1)
-            oi = objOis[k]
-            name = oi.filename.split('/')[-1]
+            # move the best fit back to star frame to overplot it
+            this_u = (raBest*oi.visOi.uCoord + decBest*oi.visOi.vCoord)/1e7
+            phase = 2*np.pi*this_u*1e7/3600.0/360.0/1000.0*2*np.pi
+            phi = np.exp(1j*phase)
             if oi.swap:
-                ax.imshow(chi2Maps[k].T, origin = "lower", extent = [np.min(raValues_swap), np.max(raValues_swap), np.min(decValues_swap), np.max(decValues_swap)])
+                gPlot.reImPlot(w, np.ma.masked_array(phi*bestFit, oi.visOi.flag).mean(axis = 0), fig = fig)                
             else:
-                ax.imshow(chi2Maps[k].T, origin = "lower", extent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)])            
-            ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
-            ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
-            ax.set_title(name)
+                gPlot.reImPlot(w, np.ma.masked_array(np.conj(phi)*bestFit, oi.visOi.flag).mean(axis = 0), fig = fig)
+            plt.legend([oi.filename.split("/")[-1], "Swap fit (from combined files)"])
+            pdf.savefig()
+            
+        fig = plt.figure(figsize = (10, 10))
+        ax = fig.add_subplot(1, 1, 1)
+        oi = objOis[k]
+        name = oi.filename.split('/')[-1]
+        ax.imshow(chi2Map.T, origin = "lower", extent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)])
+        ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
+        ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
+        ax.set_title(name)
         plt.tight_layout()
         pdf.savefig()
