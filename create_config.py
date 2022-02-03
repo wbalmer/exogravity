@@ -96,7 +96,7 @@ if os.path.isfile(dargs["output"]):
         stop()
 
 if not("ralim" in dargs.keys()) or not("declim" in dargs.keys()):
-    printwar("ralim or declim not provided in args. Default: fiber position +/- 5 mas.")
+    printwar("ralim or declim not provided in args. Default: fiber position +/- 30 mas (UTs) or +/- 120 mas (ATs).")
     dargs["ralim"] = None
     dargs["declim"] = None
 

@@ -203,14 +203,8 @@ if PHASEREF_MODE == "DF_SWAP":
             phaseRef2 = phaseRef2+np.mean(swapOis[k].visOi.visRef, axis = 0)
         else:
             phaseRef1 = phaseRef1+np.mean(swapOis[k].visOi.visRef, axis = 0)
-    # now we can the phaseref
-    phaseRef = 0.5*(np.angle(phaseRef2)+np.angle(phaseRef1))
-    # because the phase are defined mod 2pi, phaseref can have pi offsets. We need to unwrap that
-    # For this we test the phase continuity of a phase-referenced swap obs
-    testCase = np.angle(swapOis[0].visOi.visRef.mean(axis = 0))-phaseRef
-    unwrapped = 0.5*np.unwrap(2*testCase)
-    correction = unwrapped - testCase
-    phaseRef = phaseRef - correction
+    # now we can take the phaseref
+    phaseRef = np.angle(0.5*(phaseRef2+phaseRef1))
     # for convenience, we store this ref in visRef angle, getting rid of the useless values from the star
     visRefs = [2*np.abs(swapOis[0].visOi.visRef.mean(axis = 0))*np.exp(1j*phaseRef) for visRef in visRefs] # factor 2 because the beamspliter is used for on-star observations
 

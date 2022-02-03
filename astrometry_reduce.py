@@ -99,7 +99,7 @@ IGNORE_BASELINES = cfg["general"]["ignore_baselines"]
 
 # OVERWRITE SOME OF THE CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
 if "gofast" in dargs.keys():
-    GO_FAST = dargs["gofast"] # bypass value from config file    
+    GO_FAST = dargs["gofast"].lower()=="true" # bypass value from config file
 if "noinv" in dargs.keys():
     NO_INV = dargs["noinv"] # bypass value from config file
 if "figdir" in dargs.keys():
