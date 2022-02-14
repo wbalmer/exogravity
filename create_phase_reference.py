@@ -86,6 +86,7 @@ if not(FIGDIR is None):
     from cleanGravity import gravityPlot as gPlot
     import matplotlib.pyplot as plt
     import matplotlib
+    from matplotlib.backends.backend_pdf import PdfPages        
     if not(os.path.isdir(FIGDIR)):
         os.makedirs(FIGDIR)
         printinf("Directory {} was not found and has been created".format(FIGDIR))
@@ -119,7 +120,7 @@ for filename in STAR_FILES:
     printinf("Loading file "+filename)
     if (PHASEREF_MODE == "DF_SWAP"):
         if REDUCTION == "astrored":        
-            oi = gravity.GravityDualfieldAstrored(filename, corrMet = "drs", extension = EXTENSION, corrDisp = "drs")
+            oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = EXTENSION, corrDisp = cfg["general"]["corr_disp"])
         elif REDUCTION == "dualscivis":
             oi = gravity.GravityDualfieldScivis(filename, extension = EXTENSION)
         else:
@@ -150,6 +151,12 @@ if REDUCTION == "astrored":
     ftThresholdStar = cfg["general"]["ftOnStarMeanFlux"]*FT_FLUX_THRESHOLD
     for oi in starOis:
         filter_ftflux(oi, ftThresholdStar)             
+
+# calculate the very useful w for plotting
+oi = objOis[0]
+w = np.zeros([oi.visOi.nchannel, oi.nwav])
+for c in range(oi.visOi.nchannel):
+    w[c, :] = oi.wav*1e6
         
 # create the visibility reference. This step depends on PHASEREF_MODE (DF_STAR or DF_SWAP)
 printinf("Creating the visibility reference from {:d} star observations.".format(len(starOis)))
@@ -218,6 +225,21 @@ for k in range(len(objOis)):
     hdul.append(fits.BinTableHDU.from_columns([fits.Column(name="EXOGRAV_VISREF", format = str(oi.nwav)+"C32", array = visRefs[k].reshape([oi.visOi.nchannel, oi.visOi.nwav]))], name = "EXOGRAV_VISREF"))
     hdul.writeto(oi.filename, overwrite = "True")
     hdul.close()
-
-
-
+    
+if not(FIGDIR is None):
+    with PdfPages(FIGDIR+"/phase_reference.pdf") as pdf:
+        for k in range(len(objOis)):
+            oi = objOis[k]
+            print(oi.dit)
+            fig = plt.figure(figsize=(10, 8))
+            gPlot.modPhasePlot(w, visRefs[k], subtitles = oi.basenames, fig = fig)
+            plt.legend(["PhaseRef "+oi.filename.split("/")[-1]])            
+            pdf.savefig()
+            plt.close(fig)
+        for k in range(len(objOis)):
+            oi = objOis[k]
+            fig = plt.figure(figsize=(10, 8))
+            gPlot.modPhasePlot(w, np.ma.masked_array(oi.visOi.visRef/visRefs[k], oi.visOi.flag).mean(axis = 0), subtitles = oi.basenames, fig = fig)
+            plt.legend([oi.filename.split("/")[-1]+"/Ref"])
+            pdf.savefig()
+            plt.close(fig)        
