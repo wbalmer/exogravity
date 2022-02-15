@@ -192,6 +192,8 @@ for k in range(len(datafiles)):
     printinf("Loading "+filename)
     oi = gravity.GravityOiFits(filename)
     oi.visOi = gravity.VisOiFits(filename, reduction = "astrored", mode = "dualfield", extension = int(dargs["extension"]))
+    oi.ndit = oi.visOi.ndit
+    oi.nwav = oi.visOi.nwav        
     oi.visOi.scaleVisibilities(1.0/oi.dit)
     d = (oi.sObjX**2+oi.sObjY**2 )**0.5
     msg = "Target is {}; Fiber distance is {:.2f} mas. ".format(oi.target, d)
@@ -226,7 +228,6 @@ else:
 printinf("RA grid set to [{:.2f}, {:.2f}] with {:d} points".format(ralim[0], ralim[1], dargs["nra"]))
 printinf("DEC grid set to [{:.2f}, {:.2f}] with {:d} points".format(declim[0], declim[1], dargs["ndec"]))
 
-
 if len(swapOis) > 0:
     printinf("At least one SWAP file detected. Setting phaseref_mode to SWAP.")
     phaseref_mode = "DF_SWAP"
@@ -234,6 +235,10 @@ else:
     printinf("No SWAP file detected. Setting phaseref_mode to STAR.")
     phaseref_mode = "DF_STAR"
 
+preduces = []
+for k in range(len(objOis)):
+    preduces.append({"p"+str(k): {"planet_oi": "p"+str(k), "dits": None}})
+    
 general = {"datadir": dargs["datadir"],
            "phaseref_mode": phaseref_mode,
            "calib_strategy": dargs["calib_strategy"],           
@@ -255,8 +260,8 @@ general = {"datadir": dargs["datadir"],
            "star_order": int(dargs["star_order"]),
            "star_diameter": float(dargs["star_diameter"]),
            "phaseref_arclength_threshold": float(dargs["phaseref_arclength_threshold"]),
-           "ft_flux_threshold": float(dargs["ft_flux_threshold"]),                                 
-           "reduce": ["p"+str(j) for j in range(len(objOis))],
+           "ft_flux_threshold": float(dargs["ft_flux_threshold"]),
+           "reduce": preduces,
            "ignore_baselines": dargs["ignore_baselines"],
            }
 
@@ -264,6 +269,9 @@ planet_files = {}
 for k in range(len(objOis)):
     oi = objOis[k]
     d = {"filename": oi.filename.split(dargs["datadir"])[1],
+         "dit": oi.dit,
+         "ndit": oi.ndit,
+         "nwav": oi.nwav,         
          "mjd": oi.mjd,
          "sObjX": oi.sObjX,
          "sObjY": oi.sObjY,
@@ -285,6 +293,9 @@ star_files = {}
 for k in range(len(starOis)):
     oi = starOis[k]
     d = {"filename": oi.filename.split(dargs["datadir"])[1],
+         "dit": oi.dit,
+         "ndit": oi.ndit,
+         "nwav": oi.nwav,         
          "mjd": oi.mjd,
          "sObjX": oi.sObjX,
          "sObjY": oi.sObjY,
@@ -304,6 +315,9 @@ for k in range(len(swapOis)):
     else:
         pos = 1
     d = {"filename": oi.filename.split(dargs["datadir"])[1],
+         "dit": oi.dit,
+         "ndit": oi.ndit,
+         "nwav": oi.nwav,
          "mjd": oi.mjd,
          "sObjX": oi.sObjX,
          "sObjY": oi.sObjY,

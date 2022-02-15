@@ -63,7 +63,8 @@ else:
 DATA_DIR = cfg["general"]["datadir"]
 PHASEREF_MODE = cfg["general"]["phaseref_mode"]
 FIGDIR = cfg["general"]["figdir"]
-PLANET_FILES = [DATA_DIR+cfg["planet_ois"][k]["filename"] for k in cfg["general"]["reduce"]] # list of files corresponding to planet exposures
+PLANET_FILES = [DATA_DIR+cfg["planet_ois"][preduce[list(preduce.keys())[0]]["planet_oi"]]["filename"] for preduce in cfg["general"]["reduce"]]
+PLANET_DITS = [preduce[list(preduce.keys())[0]]["dits"] for preduce in cfg["general"]["reduce"]]
 if not("swap_ois" in cfg.keys()):
     SWAP_FILES = []
 elif cfg["swap_ois"] is None:
@@ -93,8 +94,9 @@ if not(FIGDIR is None):
 
 # extract list of useful star ois from the list indicated in the star_indices fields of the config file:
 star_indices = []
-for k in cfg["general"]["reduce"]:
-    star_indices = star_indices+cfg["planet_ois"][k]["star_indices"]
+for preduce in cfg["general"]["reduce"]:
+    pkey = preduce[list(preduce.keys())[0]]["planet_oi"]
+    star_indices = star_indices+cfg["planet_ois"][pkey]["star_indices"]
 star_indices = list(set(star_indices)) # remove duplicates
 STAR_FILES = [DATA_DIR+cfg["star_ois"][k]["filename"] for k in star_indices]
 
@@ -116,6 +118,14 @@ for filename in PLANET_FILES:
         printerr("Unknonwn reduction type '{}'.".format(REDUCTION))        
     objOis.append(oi)
 
+for k in range(len(PLANET_FILES)):
+    oi = objOis[k]
+    if not(PLANET_DITS[k] is None):
+        dits_to_remove = [j for j in range(oi.ndit) if not(j in PLANET_DITS[k])]        
+        if len(dits_to_remove) > 0:
+            printinf("Removing {} dits from file {}".format(len(dits_to_remove), oi.filename))
+            oi.removeDits(dits_to_remove)    
+    
 for filename in STAR_FILES:
     printinf("Loading file "+filename)
     if (PHASEREF_MODE == "DF_SWAP"):
@@ -162,7 +172,8 @@ for c in range(oi.visOi.nchannel):
 printinf("Creating the visibility reference from {:d} star observations.".format(len(starOis)))
 visRefs = [oi.visOi.visRef.mean(axis=0)*0 for oi in objOis]
 for k in range(len(objOis)):
-    planet_ind = cfg["general"]["reduce"][k]
+    preduce = cfg["general"]["reduce"][k]
+    planet_ind = preduce[list(preduce.keys())[0]]["planet_oi"]
     ampRef = np.zeros([oi.visOi.nchannel, oi.nwav])
     visRef = np.zeros([oi.visOi.nchannel, oi.nwav], "complex")
     if cfg["general"]["calib_strategy"].lower()=="none":

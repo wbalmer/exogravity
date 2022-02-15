@@ -76,7 +76,8 @@ NO_INV = cfg["general"]["noinv"]
 GO_FAST = cfg["general"]["gofast"]
 FIGDIR = cfg["general"]["figdir"]
 SAVE_RESIDUALS = cfg["general"]["save_residuals"]
-PLANET_FILES = [DATA_DIR+cfg["planet_ois"][k]["filename"] for k in cfg["general"]["reduce"]] # list of files corresponding to planet exposures
+PLANET_FILES = [DATA_DIR+cfg["planet_ois"][preduce[list(preduce.keys())[0]]["planet_oi"]]["filename"] for preduce in cfg["general"]["reduce"]]
+PLANET_DITS = [preduce[list(preduce.keys())[0]]["dits"] for preduce in cfg["general"]["reduce"]]
 if not("swap_ois" in cfg.keys()):
     SWAP_FILES = []
 elif cfg["swap_ois"] is None:
@@ -121,14 +122,6 @@ if not(FIGDIR is None):
 if SAVE_RESIDUALS and (FIGDIR is None):
     printerr("save_residuals option requested, but no figdir provided.")
         
-# extract list of useful star ois from the list indicated in the star_indices fields of the config file:
-star_indices = []
-for k in cfg["general"]["reduce"]:
-    star_indices = star_indices+cfg["planet_ois"][k]["star_indices"]
-star_indices = list(set(star_indices)) # remove duplicates
-STAR_FILES = [DATA_DIR+cfg["star_ois"][k]["filename"] for k in star_indices]
-
-
 # read the contrast file if given, otherwise simply set it to 1
 if CONTRAST_FILE is None:
     contrast_data = None
@@ -145,14 +138,22 @@ for filename in PLANET_FILES:
     printinf("Loading file "+filename)
     if REDUCTION == "astrored":
         oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = EXTENSION, corrDisp = cfg["general"]["corr_disp"])
-        printinf("File is on planet. FT coherent flux: {:.2e}".format(np.mean(np.abs(oi.visOi.visDataFt))))                
+        printinf("File is on planet. FT coherent flux: {:.2e}".format(np.mean(np.abs(oi.visOi.visDataFt))))
     elif REDUCTION == "dualscivis":
         oi = gravity.GravityDualfieldScivis(filename, extension = EXTENSION)
         printinf("File is on planet")
     else:
-        printerr("Unknonwn reduction type '{}'.".format(REDUCTION))        
+        printerr("Unknown reduction type '{}'.".format(REDUCTION))        
     objOis.append(oi)
 
+for k in range(len(PLANET_FILES)):
+    oi = objOis[k]
+    if not(PLANET_DITS[k] is None):
+        dits_to_remove = [j for j in range(oi.ndit) if not(j in PLANET_DITS[k])]        
+        if len(dits_to_remove) > 0:
+            printinf("Removing {} dits from file {}".format(len(dits_to_remove), oi.filename))
+            oi.removeDits(dits_to_remove)    
+    
 # filter data
 if REDUCTION == "astrored":
     # flag points based on FT value and phaseRef arclength
@@ -414,8 +415,8 @@ printinf("DEC (from combined map): {:.2f}+-{:.3f} mas".format(decBest, cov_local
 printinf("Contrast obtained (mean, min, max): {:.2e}, {:.2e}, {:.2e}".format(np.mean(kappas), np.min(kappas), np.max(kappas)))
 
 for k in range(len(PLANET_FILES)):
-    ind = cfg["general"]["reduce"][k]
-    cfg["planet_ois"][ind]["astrometric_solution"] = [float(raBests[k]), float(decBests[k])] # YAML cannot convert numpy types
+    preduce = cfg["general"]["reduce"][k]
+    preduce[list(preduce.keys())[0]]["astrometric_solution"] = [float(raBests[k]), float(decBests[k])] # YAML cannot convert numpy types
             
 f = open(CONFIG_FILE, "w")
 if RUAMEL:

@@ -87,7 +87,8 @@ NO_INV = cfg["general"]["noinv"]
 GO_FAST = cfg["general"]["gofast"]
 REFLAG = cfg['general']['reflag']
 FIGDIR = cfg["general"]["figdir"]
-PLANET_FILES = [DATA_DIR+cfg["planet_ois"][k]["filename"] for k in cfg["general"]["reduce"]] # list of files corresponding to planet exposures
+PLANET_FILES = [DATA_DIR+cfg["planet_ois"][list(preduce.keys())[0]]["filename"] for preduce in cfg["general"]["reduce"]] # list of files corresponding to planet observations
+PLANET_DITS = [list(preduce.values())[0]["dits"] for preduce in cfg["general"]["reduce"]] # list of dits to be reduced for each planet observation
 if not("swap_ois" in cfg.keys()):
     SWAP_FILES = []
 elif cfg["swap_ois"] is None:
@@ -127,17 +128,10 @@ if not(FIGDIR is None):
 if dargs['save_residuals'] and (FIGDIR is None):
     printerr("save_residuals option requested, but not figdir provided.")
         
-# extract list of useful star ois from the list indicated in the star_indices fields of the config file:
-star_indices = []
-for k in cfg["general"]["reduce"]:
-    star_indices = star_indices+cfg["planet_ois"][k]["star_indices"]
-star_indices = list(set(star_indices)) # remove duplicates
-STAR_FILES = [DATA_DIR+cfg["star_ois"][k]["filename"] for k in star_indices]
-
 # extract the astrometric solutions
 try:
-    RA_SOLUTIONS = [cfg["planet_ois"][k]["astrometric_solution"][0] for k in cfg["general"]["reduce"]]
-    DEC_SOLUTIONS = [cfg["planet_ois"][k]["astrometric_solution"][1] for k in cfg["general"]["reduce"]]
+    RA_SOLUTIONS = [preduce[list(preduce.keys())[0]]["astrometric_solution"][0] for preduce in cfg["general"]["reduce"]]
+    DEC_SOLUTIONS = [preduce[list(preduce.keys())[0]]["astrometric_solution"][1] for preduce in cfg["general"]["reduce"]]
     printinf("Astrometry extracted from config file {}".format(CONFIG_FILE))
 except:
     printerr("Could not extract the astrometry from the config file {}".format(CONFIG_FILE))
@@ -156,7 +150,7 @@ for filename in PLANET_FILES:
     printinf("Loading file "+filename)
     if REDUCTION == "astrored":
         oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = EXTENSION, corrDisp = cfg["general"]["corr_disp"])
-        printinf("File is on planet. FT coherent flux: {:.2e}".format(np.mean(np.abs(oi.visOi.visDataFt))))                
+        printinf("File is on planet. FT coherent flux: {:.2e}".format(np.mean(np.abs(oi.visOi.visDataFt))))                        
     elif REDUCTION == "dualscivis":
         oi = gravity.GravityDualfieldScivis(filename, extension = EXTENSION)
         printinf("File is on planet")
@@ -164,6 +158,14 @@ for filename in PLANET_FILES:
         printerr("Unknonwn reduction type '{}'.".format(REDUCTION))        
     objOis.append(oi)
 
+for k in range(len(PLANET_FILES)):
+    oi = objOis[k]
+    if not(PLANET_DITS[k] is None):
+        dits_to_remove = [j for j in range(oi.ndit) if not(j in PLANET_DITS[k])]        
+        if len(dits_to_remove) > 0:
+            printinf("Removing {} dits from file {}".format(len(dits_to_remove), oi.filename))
+            oi.removeDits(dits_to_remove)    
+    
 # filter data
 if REDUCTION == "astrored":
     # flag points based on FT value and phaseRef arclength
