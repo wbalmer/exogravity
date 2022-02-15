@@ -230,7 +230,6 @@ if not(FIGDIR is None):
     with PdfPages(FIGDIR+"/phase_reference.pdf") as pdf:
         for k in range(len(objOis)):
             oi = objOis[k]
-            print(oi.dit)
             fig = plt.figure(figsize=(10, 8))
             gPlot.modPhasePlot(w, visRefs[k], subtitles = oi.basenames, fig = fig)
             plt.legend(["PhaseRef "+oi.filename.split("/")[-1]])            
