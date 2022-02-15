@@ -181,9 +181,9 @@ if REDUCTION == "astrored":
 #    oi.visOi.scaleVisibilities(1.0/np.abs(oi.visOi.visDataFt).mean(axis = -1))
 
 # replace data by the mean over all DITs if go_fast has been requested in the config file
-printinf("gofast flag is set. Averaging over DITs")
-for oi in objOis: # mean should not be calculated on swap before phase correction
-    if (GO_FAST):
+if (GO_FAST):
+    printinf("gofast flag is set. Averaging over DITs")            
+    for oi in objOis: # mean should not be calculated on swap before phase correction
         printinf("Averaging file {}".format(oi.filename))
         oi.visOi.recenterPhase(oi.sObjX, oi.sObjY)
         oi.computeMean()
