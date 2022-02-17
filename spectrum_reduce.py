@@ -149,7 +149,7 @@ t = time.time()
 for filename in PLANET_FILES:
     printinf("Loading file "+filename)
     if REDUCTION == "astrored":
-        oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = EXTENSION, corrDisp = cfg["general"]["corr_disp"])
+        oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = EXTENSION, corrDisp = cfg["general"]["corr_disp"], reflag = REFLAG)
         printinf("File is on planet. FT coherent flux: {:.2e}".format(np.mean(np.abs(oi.visOi.visDataFt))))                        
     elif REDUCTION == "dualscivis":
         oi = gravity.GravityDualfieldScivis(filename, extension = EXTENSION)
@@ -158,6 +158,9 @@ for filename in PLANET_FILES:
         printerr("Unknonwn reduction type '{}'.".format(REDUCTION))        
     objOis.append(oi)
 
+if REFLAG:
+    printinf("REFLAG is set, and points have been reflagged according to the REFLAG column of the fits file")
+    
 for k in range(len(PLANET_FILES)):
     oi = objOis[k]
     if not(PLANET_DITS[k] is None):
@@ -495,14 +498,29 @@ if (GO_FAST==False):
     printinf("Reflagging bad datapoints based on fit results (5 sigmas)")
     for k in range(len(objOis)):
         oi = objOis[k]
-        hdul = fits.open(oi.filename, mode = "update")
-        if "REFLAG" in [hdu.name for hdu in hdul]:
-            hdul.pop([hdu.name for hdu in hdul].index("REFLAG"))
         reflag = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], 'bool')
         indx = np.where(oi.visOi.fitDistance > 5)
         reflag[indx] = True
         reflag = reflag | oi.visOi.flag
-        hdul.append(fits.BinTableHDU.from_columns([fits.Column(name="REFLAG", format = str(oi.nwav)+"L", array = reflag.reshape([oi.visOi.nchannel*oi.visOi.ndit, oi.visOi.nwav]))], name = "REFLAG"))
+        oi.visOi.reflag = reflag
+    # now we need to save this in the fits file. this is a tricky operation when only a subsets of the dits are used in each oi reduced, or worse if dits are splitted
+    # because the fits file is shared between different objOis. So we need to concatenate the flags properly. Here we go.
+    pkeys = [preduce[list(preduce.keys())[0]]["planet_oi"] for preduce in cfg["general"]["reduce"]]  # list of planet_oi keys (p0, p1, etc.) used
+    pkeys = list(set(pkeys)) # make it unique
+    for pkey in pkeys:
+        filename = DATA_DIR+cfg["planet_ois"][pkey]["filename"] # this is the fits file
+        hdul = fits.open(filename, mode = "update")
+        if "REFLAG" in [hdu.name for hdu in hdul]:
+            hdul.pop([hdu.name for hdu in hdul].index("REFLAG"))        
+        ndit = cfg["planet_ois"][pkey]["ndit"] # true number of dits
+        reflag = np.zeros([ndit, objOis[0].visOi.nchannel, objOis[0].visOi.nwav])        
+        inds = [r for r in range(len(PLANET_FILES)) if PLANET_FILES[r] == filename] # inds of the reduced ois corresponding tho this fits file
+        for ind in inds: # we need to retrive the reflag from each of them, and reorder aon the dits properly to fits the initial fits file ordering
+            oi = objOis[ind]
+            dits = PLANET_DITS[ind]
+            for j in range(len(dits)):
+                reflag[dits[j], :, :] = oi.visOi.reflag[j, :, :]        
+        hdul.append(fits.BinTableHDU.from_columns([fits.Column(name="REFLAG", format = str(oi.nwav)+"L", array = reflag.reshape([oi.visOi.nchannel*ndit, oi.visOi.nwav]))], name = "REFLAG"))
         hdul.writeto(oi.filename, overwrite = "True")
         hdul.close()
         printinf("A total of {:d} bad points have be reflagged for file {}".format(len(indx[0]), oi.filename))
