@@ -518,8 +518,11 @@ if (GO_FAST==False):
         for ind in inds: # we need to retrive the reflag from each of them, and reorder aon the dits properly to fits the initial fits file ordering
             oi = objOis[ind]
             dits = PLANET_DITS[ind]
-            for j in range(len(dits)):
-                reflag[dits[j], :, :] = oi.visOi.reflag[j, :, :]        
+            if (dits is None): 
+                reflag[:, :, :] = oi.visOi.reflag[:, :, :]
+            else:
+                for j in range(len(dits)):
+                    reflag[dits[j], :, :] = oi.visOi.reflag[j, :, :]        
         hdul.append(fits.BinTableHDU.from_columns([fits.Column(name="REFLAG", format = str(oi.nwav)+"L", array = reflag.reshape([oi.visOi.nchannel*ndit, oi.visOi.nwav]))], name = "REFLAG"))
         hdul.writeto(oi.filename, overwrite = "True")
         hdul.close()
