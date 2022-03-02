@@ -477,7 +477,7 @@ if not(FIGDIR is None):
             # to plot the average planet in the star frame, we cannot naively average because it would blur the fringes.
             # we need to convert into the planet frame, calculate the mean here, and then move back to the star frame
             wavelet = oi.visOi.getWavelet(raBests[k], decBests[k]) # we'll use the conj to move to planet frame
-            waveletMean = np.exp(-1j*2*np.pi/w*np.tile(oi.visOi.getOpd(raBests[k], decBests[k]).mean(axis = 0), [233, 1]).T) # to move the mean back to star frame
+            waveletMean = np.exp(-1j*2*np.pi/w*np.tile(oi.visOi.getOpd(raBests[k], decBests[k]).mean(axis = 0), [oi.nwav, 1]).T) # to move the mean back to star frame
             gPlot.reImPlot(w, np.ma.masked_array(np.conj(wavelet)*(oi.visOi.visRef-bestFitStars[k]), oi.visOi.flag).mean(axis = 0)*waveletMean, subtitles = oi.basenames, fig = fig)
             gPlot.reImPlot(w, np.ma.masked_array(np.conj(wavelet)*bestFits[k], oi.visOi.flag).mean(axis = 0)*waveletMean, fig = fig)
             plt.legend([oi.filename.split("/")[-1], "Astrometry fit"])
