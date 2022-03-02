@@ -64,7 +64,6 @@ DATA_DIR = cfg["general"]["datadir"]
 PHASEREF_MODE = cfg["general"]["phaseref_mode"]
 FIGDIR = cfg["general"]["figdir"]
 PLANET_FILES = [DATA_DIR+cfg["planet_ois"][preduce[list(preduce.keys())[0]]["planet_oi"]]["filename"] for preduce in cfg["general"]["reduce"]]
-PLANET_DITS = [preduce[list(preduce.keys())[0]]["dits"] for preduce in cfg["general"]["reduce"]]
 if not("swap_ois" in cfg.keys()):
     SWAP_FILES = []
 elif cfg["swap_ois"] is None:
@@ -118,14 +117,6 @@ for filename in PLANET_FILES:
         printerr("Unknonwn reduction type '{}'.".format(REDUCTION))        
     objOis.append(oi)
 
-for k in range(len(PLANET_FILES)):
-    oi = objOis[k]
-    if not(PLANET_DITS[k] is None):
-        dits_to_remove = [j for j in range(oi.ndit) if not(j in PLANET_DITS[k])]        
-        if len(dits_to_remove) > 0:
-            printinf("Removing {} dits from file {}".format(len(dits_to_remove), oi.filename))
-            oi.removeDits(dits_to_remove)    
-    
 for filename in STAR_FILES:
     printinf("Loading file "+filename)
     if (PHASEREF_MODE == "DF_SWAP"):

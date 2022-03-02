@@ -77,7 +77,8 @@ GO_FAST = cfg["general"]["gofast"]
 FIGDIR = cfg["general"]["figdir"]
 SAVE_RESIDUALS = cfg["general"]["save_residuals"]
 PLANET_FILES = [DATA_DIR+cfg["planet_ois"][preduce[list(preduce.keys())[0]]["planet_oi"]]["filename"] for preduce in cfg["general"]["reduce"]]
-PLANET_DITS = [preduce[list(preduce.keys())[0]]["dits"] for preduce in cfg["general"]["reduce"]]
+PLANET_REJECT_DITS = [preduce[list(preduce.keys())[0]]["reject_dits"] for preduce in cfg["general"]["reduce"]]
+PLANET_REJECT_BASELINES = [preduce[list(preduce.keys())[0]]["reject_baselines"] for preduce in cfg["general"]["reduce"]]
 if not("swap_ois" in cfg.keys()):
     SWAP_FILES = []
 elif cfg["swap_ois"] is None:
@@ -96,7 +97,6 @@ REDUCTION = cfg["general"]["reduction"]
 # FILTER DATA
 PHASEREF_ARCLENGTH_THRESHOLD = cfg["general"]["phaseref_arclength_threshold"]
 FT_FLUX_THRESHOLD = cfg["general"]["ft_flux_threshold"]
-IGNORE_BASELINES = cfg["general"]["ignore_baselines"]
 
 # OVERWRITE SOME OF THE CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
 if "gofast" in dargs.keys():
@@ -146,29 +146,31 @@ for filename in PLANET_FILES:
         printerr("Unknown reduction type '{}'.".format(REDUCTION))        
     objOis.append(oi)
 
-for k in range(len(PLANET_FILES)):
-    oi = objOis[k]
-    if not(PLANET_DITS[k] is None):
-        dits_to_remove = [j for j in range(oi.ndit) if not(j in PLANET_DITS[k])]        
-        if len(dits_to_remove) > 0:
-            printinf("Removing {} dits from file {}".format(len(dits_to_remove), oi.filename))
-            oi.removeDits(dits_to_remove)    
-    
 # filter data
 if REDUCTION == "astrored":
     # flag points based on FT value and phaseRef arclength
     ftThresholdPlanet = cfg["general"]["ftOnPlanetMeanFlux"]*FT_FLUX_THRESHOLD
-    for oi in objOis:
+    for k in range(len(PLANET_FILES)):
+        oi = objOis[k]
         filter_ftflux(oi, ftThresholdPlanet)
         if PHASEREF_ARCLENGTH_THRESHOLD > 0:
-            filter_phaseref_arclength(oi, PHASEREF_ARCLENGTH_THRESHOLD)
+            filter_phaseref_arclength(oi, PHASEREF_ARCLENGTH_THRESHOLD) 
+        # explicitly set ignored dits to NAN
+        if not(PLANET_REJECT_DITS[k] is None):
+            if len(PLANET_REJECT_DITS[k]) > 0:
+                a = PLANET_REJECT_DITS[k]
+                b = range(oi.visOi.nchannel)
+                (a, b, c) = np.meshgrid(a, b, range(oi.nwav))
+                oi.visOi.flagPoints((a, b, c))
+                printinf("Ignoring some dits in file {}".format(oi.filename))           
         # explicitly set ignored baselines to NAN
-        if len(IGNORE_BASELINES)>0:
-            a = range(oi.visOi.ndit)
-            b = IGNORE_BASELINES
-            (a, b, c) = np.meshgrid(a, b, range(oi.nwav))
-            oi.visOi.flagPoints((a, b, c))
-            printinf("Ignoring some baselines in file {}".format(oi.filename))
+        if not(PLANET_REJECT_BASELINES[k] is None):
+            if len(PLANET_REJECT_BASELINES[k]) > 0:            
+                a = range(oi.visOi.ndit)
+                b = PLANET_REJECT_BASELINES[k]
+                (a, b, c) = np.meshgrid(a, b, range(oi.nwav))
+                oi.visOi.flagPoints((a, b, c))
+                printinf("Ignoring some baselines in file {}".format(oi.filename))
 
 # replace data by the mean over all DITs if go_fast has been requested in the config file
 if (GO_FAST):
@@ -373,7 +375,7 @@ for k in range(len(objOis)):
 bestOpds = np.zeros([len(objOis), objOis[0].visOi.nchannel])
 for k in range(len(objOis)):
     oi = objOis[k]
-    printwar("Looking for best OPD on each baseline for file {} is different from global minimum".format(objOis[k].filename))    
+    printwar("Looking for best OPD on each baseline for file {}".format(objOis[k].filename))    
     opdLimits = np.zeros([oi.visOi.nchannel, 2]) # min and max for each channel
     opdLimits[:, 0] = +np.inf
     opdLimits[:, 1] = -np.inf
@@ -401,8 +403,10 @@ for k in range(len(objOis)):
     wavref = 1e6*np.mean(oi.wav)
     for c in range(oi.visOi.nchannel):
         for j in range(np.shape(decOpdBaselines)[2]):
-            decOpdBaselines[k, c, j, :] = ((bestOpds[k, c]+(j-np.shape(decOpdBaselines)[2]//2)*wavref)/1e6*1000.0*3600.0*360.0/2.0/np.pi - raValues*oi.visOi.u[:, c].mean(axis = 0))/oi.visOi.v[:, c].mean(axis = 0)
-        
+            u = np.ma.masked_array(oi.visOi.uCoord[:, c, :]*oi.visOi.wav, oi.visOi.flag[:, c, :])
+            v = np.ma.masked_array(oi.visOi.vCoord[:, c, :]*oi.visOi.wav, oi.visOi.flag[:, c, :])
+            decOpdBaselines[k, c, j, :] = ((bestOpds[k, c]+(j-np.shape(decOpdBaselines)[2]//2)*wavref)/1e6*1000.0*3600.0*360.0/2.0/np.pi - raValues*u.mean())/v.mean()
+            
 cov = np.cov(raBests, decBests)
 printinf("RA: {:.2f}+-{:.3f} mas".format(np.mean(raBests), cov[0, 0]**0.5))
 printinf("DEC: {:.2f}+-{:.3f} mas".format(np.mean(decBests), cov[1, 1]**0.5))
@@ -411,6 +415,7 @@ printinf("COV: {:.2f}".format(cov[0, 1]/np.sqrt(cov[0, 0]*cov[1, 1])))
 cov_local = np.cov(raBests_local, decBests_local)
 printinf("RA (from combined map): {:.2f}+-{:.3f} mas".format(raBest, cov_local[0, 0]**0.5))
 printinf("DEC (from combined map): {:.2f}+-{:.3f} mas".format(decBest, cov_local[1, 1]**0.5))
+printinf("COV (from combined map): {:.2f} mas".format(cov_local[0, 1]/np.sqrt(cov_local[0, 0]*cov_local[1, 1])))
 
 printinf("Contrast obtained (mean, min, max): {:.2e}, {:.2e}, {:.2e}".format(np.mean(kappas), np.min(kappas), np.max(kappas)))
 
@@ -425,7 +430,10 @@ else:
     f.write(yaml.safe_dump(cfg, default_flow_style = False)) 
 f.close()
 
-
+# get max distance in UV plane for plotting UV maps
+coords = np.concatenate([np.sqrt(oi.visOi.uCoord**2+oi.visOi.vCoord**2) for oi in objOis])
+r = np.nanmax(coords)
+        
 if not(FIGDIR is None):
     hdu = fits.PrimaryHDU(chi2Maps.transpose(0, 2, 1))
     hdu.header["CRPIX1"] = 0.0
@@ -449,27 +457,52 @@ if not(FIGDIR is None):
         pdf.savefig()
 
         # UV plot
-        plt.figure()
-        gPlot.uvMap(objOis[0].visOi.uCoord[0, :, :], objOis[0].visOi.vCoord[0, :, :], targetCoord=(raBest, decBest), legend = objOis[0].basenames, symmetric = True)
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        for k in range(len(objOis)):
+            oi = objOis[k]
+            uCoord = oi.visOi.uCoord
+            vCoord = oi.visOi.vCoord
+            uCoord[np.where(uCoord == 0)] = float("nan")
+            vCoord[np.where(vCoord == 0)] = float("nan")
+            if k == 0:
+                gPlot.uvMap(np.nanmean(uCoord, axis = 0), np.nanmean(vCoord, axis = 0), targetCoord=(raBest, decBest), symmetric = True, ax = ax, colors = ["C"+str(c) for c in range(oi.visOi.nchannel)], lim = 2*r)
+            else:
+                gPlot.uvMap(np.nanmean(uCoord, axis=0), np.nanmean(vCoord, axis = 0), targetCoord=None, symmetric = True, ax = ax, colors = ["C"+str(c) for c in range(oi.visOi.nchannel)], lim=2*r) 
         pdf.savefig()
 
         for k in range(len(objOis)):
             oi = objOis[k]
             fig = plt.figure(figsize=(10, 8))
-            gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.visRef-bestFitStars[k], oi.visOi.flag).mean(axis = 0), subtitles = oi.basenames, fig = fig)
-            gPlot.reImPlot(w, np.ma.masked_array(bestFits[k], oi.visOi.flag).mean(axis = 0), fig = fig)
+            # to plot the average planet in the star frame, we cannot naively average because it would blur the fringes.
+            # we need to convert into the planet frame, calculate the mean here, and then move back to the star frame
+            wavelet = oi.visOi.getWavelet(raBests[k], decBests[k]) # we'll use the conj to move to planet frame
+            waveletMean = np.exp(-1j*2*np.pi/w*np.tile(oi.visOi.getOpd(raBests[k], decBests[k]).mean(axis = 0), [233, 1]).T) # to move the mean back to star frame
+            gPlot.reImPlot(w, np.ma.masked_array(np.conj(wavelet)*(oi.visOi.visRef-bestFitStars[k]), oi.visOi.flag).mean(axis = 0)*waveletMean, subtitles = oi.basenames, fig = fig)
+            gPlot.reImPlot(w, np.ma.masked_array(np.conj(wavelet)*bestFits[k], oi.visOi.flag).mean(axis = 0)*waveletMean, fig = fig)
             plt.legend([oi.filename.split("/")[-1], "Astrometry fit"])
             pdf.savefig()
-            fig = plt.figure(figsize=(10, 8))        
+            fig = plt.figure(figsize=(10, 8))
             gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.visRef, oi.visOi.flag).mean(axis = 0), subtitles = oi.basenames, fig = fig)
             gPlot.reImPlot(w, np.ma.masked_array(bestFitStars[k], oi.visOi.flag).mean(axis = 0), fig = fig)
             plt.legend([oi.filename.split("/")[-1], "Star fit"])
             pdf.savefig()
 
-            fig = plt.figure(figsize = (10, 10))
-            n = int(np.ceil(np.sqrt(len(objOis)+1)))
-            ax = fig.add_subplot(n, n, 1)
-            gPlot.uvMap(objOis[0].visOi.uCoord[0, :, :], objOis[0].visOi.vCoord[0, :, :], targetCoord=(raBest, decBest), legend = objOis[0].basenames, symmetric = True, ax = ax, colors = ["C"+str(k) for k in range(6)])
+        fig = plt.figure(figsize = (10, 10))
+        n = int(np.ceil(np.sqrt(len(objOis)+1)))
+        # plot all baselines. For this, fo through all objOis and keep track of which ones are plotted already
+        ax = fig.add_subplot(n, n, 1)
+        plotted = []
+        for k in range(len(objOis)):
+            oi = objOis[k]
+            uCoord = oi.visOi.uCoord
+            vCoord = oi.visOi.vCoord
+            uCoord[np.where(uCoord == 0)] = float("nan")
+            vCoord[np.where(vCoord == 0)] = float("nan")
+            if k == 0:
+                gPlot.uvMap(np.nanmean(uCoord, axis = 0), np.nanmean(vCoord, axis = 0), targetCoord=(raBest, decBest), symmetric = True, ax = ax, colors = ["C"+str(c) for c in range(oi.visOi.nchannel)], lim = 2*r)
+            else:
+                gPlot.uvMap(np.nanmean(uCoord, axis=0), np.nanmean(vCoord, axis = 0), targetCoord=None, symmetric = True, ax = ax, colors = ["C"+str(c) for c in range(oi.visOi.nchannel)], lim=2*r)
         for k in range(len(objOis)):
             ax = fig.add_subplot(n, n, k+2)
             oi = objOis[k]
@@ -478,8 +511,11 @@ if not(FIGDIR is None):
             ax.plot(raBests[k], decBests[k], "+C1")
             ax.plot(raBests_local[k], decBests_local[k], "+C2")                 
             ax.plot(raBest, decBest, "+C3")
+            reject_baselines = PLANET_REJECT_BASELINES[k]
+            if reject_baselines is None:
+                reject_baselines = []
             for c in range(oi.visOi.nchannel):
-                if c not in IGNORE_BASELINES:
+                if not(c in reject_baselines):
                     for j in range(np.shape(decOpdBaselines)[2]):
                         if j == np.shape(decOpdBaselines)[2]//2:
                             ax.plot(raValues, decOpdBaselines[k, c, j, :], 'C'+str(c)+'-', linewidth=2)

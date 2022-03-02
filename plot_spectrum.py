@@ -118,8 +118,19 @@ if dargs["fig"] is None:
     ax2.set_ylabel("Flux ($10^{-15}\,\mathrm{W}/\mathrm{m}^2/\mu\mathrm{m}$)")
     ax2.set_xlabel("Wavelength ($\mu\mathrm{m}$)")
 
+
+# plot cov
+if dargs["cov"]:
+    plt.figure()
+    plt.imshow(contrastCov.T, origin = "lower")
+    
+    plt.figure()
+    x = np.random.multivariate_normal(0, contrastCov)
+    ax1.errorbar(wav, x*1e4, yerr=contrastErr*1e4, fmt = '.', color = dargs["color"], capsize=2, markeredgecolor = 'k')
+
 # show figure only is fig not given
 if dargs["fig"] is None:
     plt.show()
+
 
 

@@ -160,9 +160,6 @@ if not("phaseref_arclength_threshold" in dargs.keys()):
 if not("ft_flux_threshold" in dargs.keys()):
     printwar("ft_flux_threshold not given. Using default value of 0.2")
     dargs["ft_flux_threshold"] = 0.2
-if not("ignore_baselines" in dargs.keys()):
-    printwar("By default, no baseline will be ignored. Add baseline indices to 'ignore_baselines' in the yml to ignore some baselines.")
-    dargs["ignore_baselines"] = []
 
 if not("figdir" in dargs.keys()):
     printwar("No figdir given. The output PDF will not be created, and only the terminal output will be available.")
@@ -212,10 +209,17 @@ for k in range(len(datafiles)):
         objOis.append(oi)
 
 # select the field of the default chi2Maps depending if observations are from UTs or ATs
-if (objOis[0].stationNames[0] == "U1"):
-    FIELD = 30 # UT field
+if len(objOis) != 0:
+    if (objOis[0].stationNames[0] == "U1"):
+        FIELD = 30 # UT field
+    else:
+        FIELD = 120 # UT field
 else:
-    FIELD = 120 # UT field
+    if len(swapOis) != 0:
+        if (swapOis[0].stationNames[0] == "U1"):
+            FIELD = 30 # UT field
+        else:
+            FIELD = 120 # UT field    
 
 if ((dargs["ralim"] is None) or (dargs["ralim"] is None)):
     ra = np.mean(np.array([oi.sObjX for oi in objOis]))
@@ -237,7 +241,7 @@ else:
 
 preduces = []
 for k in range(len(objOis)):
-    preduces.append({"p"+str(k): {"planet_oi": "p"+str(k), "dits": None}})
+    preduces.append({"p"+str(k): {"planet_oi": "p"+str(k), "reject_baselines": None, "reject_dits": None}})
     
 general = {"datadir": dargs["datadir"],
            "phaseref_mode": phaseref_mode,
@@ -261,8 +265,7 @@ general = {"datadir": dargs["datadir"],
            "star_diameter": float(dargs["star_diameter"]),
            "phaseref_arclength_threshold": float(dargs["phaseref_arclength_threshold"]),
            "ft_flux_threshold": float(dargs["ft_flux_threshold"]),
-           "reduce": preduces,
-           "ignore_baselines": dargs["ignore_baselines"],
+           "reduce": preduces
            }
 
 planet_files = {}

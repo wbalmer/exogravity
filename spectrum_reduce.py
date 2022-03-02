@@ -88,7 +88,8 @@ GO_FAST = cfg["general"]["gofast"]
 REFLAG = cfg['general']['reflag']
 FIGDIR = cfg["general"]["figdir"]
 PLANET_FILES = [DATA_DIR+cfg["planet_ois"][list(preduce.keys())[0]]["filename"] for preduce in cfg["general"]["reduce"]] # list of files corresponding to planet observations
-PLANET_DITS = [list(preduce.values())[0]["dits"] for preduce in cfg["general"]["reduce"]] # list of dits to be reduced for each planet observation
+PLANET_REJECT_DITS = [preduce[list(preduce.keys())[0]]["reject_dits"] for preduce in cfg["general"]["reduce"]]
+PLANET_REJECT_BASELINES = [preduce[list(preduce.keys())[0]]["reject_baselines"] for preduce in cfg["general"]["reduce"]]
 if not("swap_ois" in cfg.keys()):
     SWAP_FILES = []
 elif cfg["swap_ois"] is None:
@@ -161,24 +162,31 @@ for filename in PLANET_FILES:
 if REFLAG:
     printinf("REFLAG is set, and points have been reflagged according to the REFLAG column of the fits file")
     
-for k in range(len(PLANET_FILES)):
-    oi = objOis[k]
-    if not(PLANET_DITS[k] is None):
-        dits_to_remove = [j for j in range(oi.ndit) if not(j in PLANET_DITS[k])]        
-        if len(dits_to_remove) > 0:
-            printinf("Removing {} dits from file {}".format(len(dits_to_remove), oi.filename))
-            oi.removeDits(dits_to_remove)    
-    
 # filter data
 if REDUCTION == "astrored":
     # flag points based on FT value and phaseRef arclength
     ftThresholdPlanet = cfg["general"]["ftOnPlanetMeanFlux"]*FT_FLUX_THRESHOLD
-    ftThresholdStar = cfg["general"]["ftOnStarMeanFlux"]*FT_FLUX_THRESHOLD    
-    for oi in objOis:
-        if oi in objOis:
-            filter_ftflux(oi, ftThresholdPlanet)
-            if PHASEREF_ARCLENGTH_THRESHOLD > 0:
-                filter_phaseref_arclength(oi, PHASEREF_ARCLENGTH_THRESHOLD)
+    for k in range(len(PLANET_FILES)):
+        oi = objOis[k]
+        filter_ftflux(oi, ftThresholdPlanet)
+        if PHASEREF_ARCLENGTH_THRESHOLD > 0:
+            filter_phaseref_arclength(oi, PHASEREF_ARCLENGTH_THRESHOLD)
+        # explicitly set ignored dits to NAN
+        if not(PLANET_REJECT_DITS[k] is None):
+            if len(PLANET_REJECT_DITS[k]) > 0:            
+                a = PLANET_REJECT_DITS[k]
+                b = range(oi.visOi.nchannel)
+                (a, b, c) = np.meshgrid(a, b, range(oi.nwav))
+                oi.visOi.flagPoints((a, b, c))
+                printinf("Ignoring some dits in file {}".format(oi.filename))           
+        # explicitly set ignored baselines to NAN
+        if not(PLANET_REJECT_BASELINES[k] is None):
+            if len(PLANET_REJECT_BASELINES[k]) > 0:                        
+                a = range(oi.visOi.ndit)
+                b = PLANET_REJECT_BASELINES[k]
+                (a, b, c) = np.meshgrid(a, b, range(oi.nwav))
+                oi.visOi.flagPoints((a, b, c))
+                printinf("Ignoring some baselines in file {}".format(oi.filename))                
 
 # normalize by FT flux to get rid of atmospheric transmission variations
 #printinf("Normalizing visibilities to FT coherent flux.")
@@ -515,14 +523,15 @@ if (GO_FAST==False):
         ndit = cfg["planet_ois"][pkey]["ndit"] # true number of dits
         reflag = np.zeros([ndit, objOis[0].visOi.nchannel, objOis[0].visOi.nwav])        
         inds = [r for r in range(len(PLANET_FILES)) if PLANET_FILES[r] == filename] # inds of the reduced ois corresponding tho this fits file
-        for ind in inds: # we need to retrive the reflag from each of them, and reorder aon the dits properly to fits the initial fits file ordering
+        for ind in inds: # we need to retrive the reflag from each of them
             oi = objOis[ind]
-            dits = PLANET_DITS[ind]
-            if (dits is None): 
+            reject_dits = PLANET_REJECT_DITS[ind]
+            if (reject_dits is None): 
                 reflag[:, :, :] = oi.visOi.reflag[:, :, :]
             else:
-                for j in range(len(dits)):
-                    reflag[dits[j], :, :] = oi.visOi.reflag[j, :, :]        
+                for j in range(ndit):
+                    if not(j in reject_dits):
+                        reflag[j, :, :] = oi.visOi.reflag[j, :, :]        
         hdul.append(fits.BinTableHDU.from_columns([fits.Column(name="REFLAG", format = str(oi.nwav)+"L", array = reflag.reshape([oi.visOi.nchannel*ndit, oi.visOi.nwav]))], name = "REFLAG"))
         hdul.writeto(oi.filename, overwrite = "True")
         hdul.close()

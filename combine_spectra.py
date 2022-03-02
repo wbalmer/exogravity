@@ -54,19 +54,11 @@ wav_tot, flux_tot, fluxCov_tot, contrast_tot, contrastCov_tot = loadFitsSpectrum
 fluxCovInv_tot = np.linalg.inv(fluxCov_tot)
 contrastCovInv_tot = np.linalg.inv(contrastCov_tot)
 
-import matplotlib.pyplot as plt
-plt.ion()
-
-plt.figure();
-plt.errorbar(wav_tot, flux_tot, yerr = np.diag(fluxCov_tot)**0.5, fmt = '.')
-
-
 flux_tot = np.dot(fluxCovInv_tot, flux_tot)
 contrast_tot = np.dot(contrastCovInv_tot, contrast_tot)
 
 for k in range(1, nfiles):
     wav, flux, fluxCov, contrast, contrastCov = loadFitsSpectrum(filenames[k])
-    plt.errorbar(wav, flux, yerr = np.diag(fluxCov)**0.5, fmt = '.')    
     if (len(wav) != len(wav_tot)): 
         printerr("The wavelength sequences are not the same in all spectra. Cannot calculate the combined spectra.")
         stop()
@@ -85,8 +77,6 @@ contrastCov_tot = np.linalg.inv(contrastCovInv_tot)
 
 flux_tot = np.dot(fluxCov_tot, flux_tot)
 contrast_tot = np.dot(contrastCov_tot, contrast_tot)
-
-plt.errorbar(wav_tot, flux_tot, yerr = np.diag(fluxCov_tot)**0.5, fmt = '.')
 
 printinf("Saving result in {}".format(dargs["output"]))
 
