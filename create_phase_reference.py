@@ -63,13 +63,13 @@ else:
 DATA_DIR = cfg["general"]["datadir"]
 PHASEREF_MODE = cfg["general"]["phaseref_mode"]
 FIGDIR = cfg["general"]["figdir"]
-PLANET_FILES = [DATA_DIR+cfg["planet_ois"][preduce[list(preduce.keys())[0]]["planet_oi"]]["filename"] for preduce in cfg["general"]["reduce"]]
+PLANET_FILES = [DATA_DIR+cfg["planet_ois"][preduce[list(preduce.keys())[0]]["planet_oi"]]["filename"] for preduce in cfg["general"]["reduce_planets"]]
 if not("swap_ois" in cfg.keys()):
     SWAP_FILES = []
 elif cfg["swap_ois"] is None:
     SWAP_FILES = []
 else:
-    SWAP_FILES = [DATA_DIR+cfg["swap_ois"][k]["filename"] for k in cfg["swap_ois"].keys()]
+    SWAP_FILES = [DATA_DIR+cfg["swap_ois"][preduce[list(preduce.keys())[0]]["swap_oi"]]["filename"] for preduce in cfg["general"]["reduce_swaps"]]
 
 EXTENSION = cfg["general"]["extension"]
 REDUCTION = cfg["general"]["reduction"]
@@ -93,7 +93,7 @@ if not(FIGDIR is None):
 
 # extract list of useful star ois from the list indicated in the star_indices fields of the config file:
 star_indices = []
-for preduce in cfg["general"]["reduce"]:
+for preduce in cfg["general"]["reduce_planets"]:
     pkey = preduce[list(preduce.keys())[0]]["planet_oi"]
     star_indices = star_indices+cfg["planet_ois"][pkey]["star_indices"]
 star_indices = list(set(star_indices)) # remove duplicates
@@ -163,7 +163,7 @@ for c in range(oi.visOi.nchannel):
 printinf("Creating the visibility reference from {:d} star observations.".format(len(starOis)))
 visRefs = [oi.visOi.visRef.mean(axis=0)*0 for oi in objOis]
 for k in range(len(objOis)):
-    preduce = cfg["general"]["reduce"][k]
+    preduce = cfg["general"]["reduce_planets"][k]
     planet_ind = preduce[list(preduce.keys())[0]]["planet_oi"]
     ampRef = np.zeros([oi.visOi.nchannel, oi.nwav])
     visRef = np.zeros([oi.visOi.nchannel, oi.nwav], "complex")
@@ -215,7 +215,7 @@ if PHASEREF_MODE == "DF_SWAP":
     # now we can take the phaseref
     phaseRef = np.angle(0.5*(phaseRef2+phaseRef1))
     # for convenience, we store this ref in visRef angle, getting rid of the useless values from the star
-    visRefs = [2*np.abs(swapOis[0].visOi.visRef.mean(axis = 0))*np.exp(1j*phaseRef) for visRef in visRefs] # factor 2 because the beamspliter is used for on-star observations
+    visRefs = [2*np.abs(visRef)*np.exp(1j*phaseRef) for visRef in visRefs] # factor 2 because the beamspliter is used for on-star observations
 
 # SAVE VISREF IN THE FITS FILE
 for k in range(len(objOis)):

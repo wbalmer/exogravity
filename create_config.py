@@ -100,6 +100,11 @@ if not("ralim" in dargs.keys()) or not("declim" in dargs.keys()):
     dargs["ralim"] = None
     dargs["declim"] = None
 
+if not("ralim_swap" in dargs.keys()) or not("declim_swap" in dargs.keys()):
+    printwar("ralim_swap or declim_swap not provided in args. Default: fiber position +/- 30 mas (UTs) or +/- 120 mas (ATs).")
+    dargs["ralim_swap"] = None
+    dargs["declim_swap"] = None    
+
 if not("nra" in dargs.keys()):
     printwar("nra not provided in args. Default: nra=100")
     dargs["nra"] = 100
@@ -109,6 +114,12 @@ if not("ndec" in dargs.keys()):
 if not("nopd" in dargs.keys()):
     printwar("nopd not provided in args. Default: to nopd=100")
     dargs["nopd"] = 100
+if not("nra_swap" in dargs.keys()):
+    printwar("nra_swap not provided in args. Default: nra=100")
+    dargs["nra_swap"] = 100
+if not("ndec_swap" in dargs.keys()):
+    printwar("ndec_swap not provided in args. Default: ndec=100")
+    dargs["ndec_swap"] = 100    
 if not("star_order" in dargs.keys()):
     printwar("star_order not provided in args. Default: star_order=4")
     dargs["star_order"] = 4
@@ -239,9 +250,32 @@ else:
     printinf("No SWAP file detected. Setting phaseref_mode to STAR.")
     phaseref_mode = "DF_STAR"
 
+if phaseref_mode == "DF_SWAP":
+    oi = swapOis[0]
+    oi = gravity.GravityDualfieldAstrored(oi.filename, extension = dargs["extension"], corrMet = "None", corrDisp = "None")
+    if oi.swap:
+        sObjX, sObjY = -oi.sObjX, -oi.sObjY
+    else:
+        sObjX, sObjY = oi.sObjX, oi.sObjY        
+    if ((dargs["ralim_swap"] is None) or (dargs["ralim_swap"] is None)):
+        ralim_swap = [sObjX-FIELD/2, sObjX+FIELD/2] # get rid of numpy type so that yaml conversion works
+        declim_swap = [sObjY-FIELD/2, sObjY+FIELD/2]
+    else:
+        ralim_swap = [float(r) for r in dargs["ralim_swap"].split(']')[0].split('[')[1].split(',')]
+        declim_swap = [float(r) for r in dargs["declim_swap"].split(']')[0].split('[')[1].split(',')]
+    printinf("RA grid set to [{:.2f}, {:.2f}] with {:d} points".format(ralim_swap[0], ralim_swap[1], dargs["nra_swap"]))
+    printinf("DEC grid set to [{:.2f}, {:.2f}] with {:d} points".format(declim_swap[0], declim_swap[1], dargs["ndec_swap"]))
+else:
+    ralim_swap = None
+    declim_swap = None    
+    
 preduces = []
 for k in range(len(objOis)):
     preduces.append({"p"+str(k): {"planet_oi": "p"+str(k), "reject_baselines": None, "reject_dits": None}})
+
+wreduces = []
+for k in range(len(swapOis)):
+    wreduces.append({"w"+str(k): {"swap_oi": "w"+str(k), "reject_baselines": None, "reject_dits": None}})    
     
 general = {"datadir": dargs["datadir"],
            "phaseref_mode": phaseref_mode,
@@ -259,13 +293,18 @@ general = {"datadir": dargs["datadir"],
            "n_opd": int(dargs["nopd"]),
            "n_ra": int(dargs["nra"]),
            "n_dec": int(dargs["ndec"]),
+           "n_ra_swap": int(dargs["nra_swap"]),
+           "n_dec_swap": int(dargs["ndec_swap"]),           
            "ralim": ralim,
            "declim": declim,
+           "ralim_swap": ralim_swap,
+           "declim_swap": declim_swap,           
            "star_order": int(dargs["star_order"]),
            "star_diameter": float(dargs["star_diameter"]),
            "phaseref_arclength_threshold": float(dargs["phaseref_arclength_threshold"]),
            "ft_flux_threshold": float(dargs["ft_flux_threshold"]),
-           "reduce": preduces
+           "reduce_planets": preduces,
+           "reduce_swaps": wreduces           
            }
 
 planet_files = {}

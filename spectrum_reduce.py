@@ -87,9 +87,9 @@ NO_INV = cfg["general"]["noinv"]
 GO_FAST = cfg["general"]["gofast"]
 REFLAG = cfg['general']['reflag']
 FIGDIR = cfg["general"]["figdir"]
-PLANET_FILES = [DATA_DIR+cfg["planet_ois"][list(preduce.keys())[0]]["filename"] for preduce in cfg["general"]["reduce"]] # list of files corresponding to planet observations
-PLANET_REJECT_DITS = [preduce[list(preduce.keys())[0]]["reject_dits"] for preduce in cfg["general"]["reduce"]]
-PLANET_REJECT_BASELINES = [preduce[list(preduce.keys())[0]]["reject_baselines"] for preduce in cfg["general"]["reduce"]]
+PLANET_FILES = [DATA_DIR+cfg["planet_ois"][list(preduce.keys())[0]]["filename"] for preduce in cfg["general"]["reduce_planets"]] # list of files corresponding to planet observations
+PLANET_REJECT_DITS = [preduce[list(preduce.keys())[0]]["reject_dits"] for preduce in cfg["general"]["reduce_planets"]]
+PLANET_REJECT_BASELINES = [preduce[list(preduce.keys())[0]]["reject_baselines"] for preduce in cfg["general"]["reduce_planets"]]
 if not("swap_ois" in cfg.keys()):
     SWAP_FILES = []
 elif cfg["swap_ois"] is None:
@@ -131,8 +131,8 @@ if dargs['save_residuals'] and (FIGDIR is None):
         
 # extract the astrometric solutions
 try:
-    RA_SOLUTIONS = [preduce[list(preduce.keys())[0]]["astrometric_solution"][0] for preduce in cfg["general"]["reduce"]]
-    DEC_SOLUTIONS = [preduce[list(preduce.keys())[0]]["astrometric_solution"][1] for preduce in cfg["general"]["reduce"]]
+    RA_SOLUTIONS = [preduce[list(preduce.keys())[0]]["astrometric_solution"][0] for preduce in cfg["general"]["reduce_planets"]]
+    DEC_SOLUTIONS = [preduce[list(preduce.keys())[0]]["astrometric_solution"][1] for preduce in cfg["general"]["reduce_planets"]]
     printinf("Astrometry extracted from config file {}".format(CONFIG_FILE))
 except:
     printerr("Could not extract the astrometry from the config file {}".format(CONFIG_FILE))
@@ -513,7 +513,7 @@ if (GO_FAST==False):
         oi.visOi.reflag = reflag
     # now we need to save this in the fits file. this is a tricky operation when only a subsets of the dits are used in each oi reduced, or worse if dits are splitted
     # because the fits file is shared between different objOis. So we need to concatenate the flags properly. Here we go.
-    pkeys = [preduce[list(preduce.keys())[0]]["planet_oi"] for preduce in cfg["general"]["reduce"]]  # list of planet_oi keys (p0, p1, etc.) used
+    pkeys = [preduce[list(preduce.keys())[0]]["planet_oi"] for preduce in cfg["general"]["reduce_planets"]]  # list of planet_oi keys (p0, p1, etc.) used
     pkeys = list(set(pkeys)) # make it unique
     for pkey in pkeys:
         filename = DATA_DIR+cfg["planet_ois"][pkey]["filename"] # this is the fits file

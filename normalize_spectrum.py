@@ -66,11 +66,11 @@ for k in range(len(lines)):
     splitted = line.split()
     w = float(splitted[0].replace('D','E'))
     f = float(splitted[1].replace('D','E'))
-    data[k, 0] = w*1e-4
+    data[k, 0] = w#*1e-4
     data[k, 1] = f
 ind = np.where(((data[:, 0]<=np.max(wav)) & (data[:, 0]>=np.min(wav))))[0]
 data=data[ind, :]
-data[:, 1]=10**(data[:, 1]-8)
+#data[:, 1]=10**(data[:, 1]-8)
 
 # guess the resolution from the data
 res = wav[0]/(wav[1]-wav[0])

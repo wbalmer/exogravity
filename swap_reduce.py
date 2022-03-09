@@ -51,7 +51,6 @@ if "help" in dargs.keys():
     print(__doc__)
     stop()
     
-
 REQUIRED_ARGS = ["config_file"]
 for req in REQUIRED_ARGS:
     if not(req in dargs.keys()):
@@ -67,29 +66,29 @@ if RUAMEL:
 else:
     cfg = yaml.safe_load(open(CONFIG_FILE, "r"))
 
+N_RA = cfg["general"]["n_ra_swap"]
+N_DEC = cfg["general"]["n_dec_swap"]
+RA_LIM = cfg["general"]["ralim_swap"]
+DEC_LIM = cfg["general"]["declim_swap"]
+EXTENSION = cfg["general"]["extension"]
+REDUCTION = cfg["general"]["reduction"]
+printinf("RA grid set to [{:.2f}, {:.2f}] with {:d} points".format(RA_LIM[0], RA_LIM[1], N_RA))
+printinf("DEC grid set to [{:.2f}, {:.2f}] with {:d} points".format(DEC_LIM[0], DEC_LIM[1], N_DEC))
+
+
 # GET FILES FOR THE SWAP 
 if not("swap_ois" in cfg.keys()):
     printerr("No SWAP files given in {}!".format(CONFIG_FILE))
 DATA_DIR = cfg['general']['datadir']    
-SWAP_FILES = [DATA_DIR+cfg["swap_ois"][k]["filename"] for k in cfg["swap_ois"].keys()]
+SWAP_FILES = [DATA_DIR+cfg["swap_ois"][preduce[list(preduce.keys())[0]]["swap_oi"]]["filename"] for preduce in cfg["general"]["reduce_swaps"]]
+SWAP_REJECT_DITS = [preduce[list(preduce.keys())[0]]["reject_dits"] for preduce in cfg["general"]["reduce_swaps"]]
+SWAP_REJECT_BASELINES = [preduce[list(preduce.keys())[0]]["reject_baselines"] for preduce in cfg["general"]["reduce_swaps"]]
 
 # load other parameters
 if "gofast" in dargs.keys():
     GO_FAST = dargs["gofast"].lower()=="true" # bypass value from config file
 else: # default is False
     GO_FAST = False
-    
-if not("ralim" in dargs.keys()) or not("declim" in dargs.keys()):
-    printwar("ralim or declim not provided in args. Default: fiber position +/- 30 mas (UTs) or +/- 120 mas (ATs).")
-    dargs["ralim"] = None
-    dargs["declim"] = None
-
-if not("nra" in dargs.keys()):
-    printwar("nra not provided in args. Default: nra=100")
-    dargs["nra"] = 100
-if not("ndec" in dargs.keys()):
-    printwar("ndec not provided in args. Default: ndec=100")
-    dargs["ndec"] = 100
     
 # figdir to know where to put figures
 FIGDIR = cfg["general"]["figdir"]
@@ -136,6 +135,27 @@ if len(ois2) == 0:
     printerr("Group 2 does not contain any OB")
     stop()
 
+# filter data
+if REDUCTION == "astrored":
+    for k in range(len(SWAP_FILES)):
+        oi = objOis[k]
+        # explicitly set ignored dits to NAN
+        if not(SWAP_REJECT_DITS[k] is None):
+            if len(SWAP_REJECT_DITS[k]) > 0:
+                a = SWAP_REJECT_DITS[k]
+                b = range(oi.visOi.nchannel)
+                (a, b, c) = np.meshgrid(a, b, range(oi.nwav))
+                oi.visOi.flagPoints((a, b, c))
+                printinf("Ignoring some dits in file {}".format(oi.filename))           
+        # explicitly set ignored baselines to NAN
+        if not(SWAP_REJECT_BASELINES[k] is None):
+            if len(SWAP_REJECT_BASELINES[k]) > 0:            
+                a = range(oi.visOi.ndit)
+                b = SWAP_REJECT_BASELINES[k]
+                (a, b, c) = np.meshgrid(a, b, range(oi.nwav))
+                oi.visOi.flagPoints((a, b, c))
+                printinf("Ignoring some baselines in file {}".format(oi.filename))
+    
 printinf("gofast flag is set. Averaging over DITs")
 if (GO_FAST):
     for oi in objOis:
@@ -149,27 +169,9 @@ w = np.zeros([6, oi.nwav])
 for k in range(6):
     w[k, :] = oi.wav*1e6
 
-# select the field of the default chi2Maps depending if observations are from UTs or ATs
-if (objOis[0].stationNames[0] == "U1"):
-    FIELD = 30 # UT field
-else:
-    FIELD = 120 # UT field
-if ((dargs["ralim"] is None) or (dargs["declim"] is None)):
-    ra = np.mean(np.array([oi.sObjX for oi in ois2])) # ois2 are the unswapped position
-    dec = np.mean(np.array([oi.sObjY for oi in ois2]))
-    ralim = [float(ra)-FIELD/2, float(ra)+FIELD/2] # get rid of numpy type so that yaml conversion works    
-    declim = [float(dec)-FIELD/2, float(dec)+FIELD/2]
-else:
-    ralim = [float(r) for r in dargs["ralim"].split(']')[0].split('[')[1].split(',')]
-    declim = [float(r) for r in dargs["declim"].split(']')[0].split('[')[1].split(',')]    
-printinf("RA grid set to [{:.2f}, {:.2f}] with {:d} points".format(ralim[0], ralim[1], dargs["nra"]))
-printinf("DEC grid set to [{:.2f}, {:.2f}] with {:d} points".format(declim[0], declim[1], dargs["ndec"]))
-
 # prepare chi2Maps
-N_RA = dargs["nra"]
-N_DEC = dargs["ndec"]
-raValues = np.linspace(ralim[0], ralim[1], N_RA)
-decValues = np.linspace(declim[0], declim[1], N_DEC)
+raValues = np.linspace(RA_LIM[0], RA_LIM[1], N_RA)
+decValues = np.linspace(DEC_LIM[0], DEC_LIM[1], N_DEC)
 chi2Map = np.zeros([N_RA, N_DEC])
 # to keep track of the best fit
 chi2Best = np.inf
