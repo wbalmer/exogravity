@@ -154,7 +154,10 @@ if REDUCTION == "astrored":
         filter_ftflux(oi, ftThresholdStar)             
 
 # calculate the very useful w for plotting
-oi = objOis[0]
+if len(objOis) > 0:
+    oi = objOis[0]
+else:
+    oi = swapOis[0]    
 w = np.zeros([oi.visOi.nchannel, oi.nwav])
 for c in range(oi.visOi.nchannel):
     w[c, :] = oi.wav*1e6
@@ -181,7 +184,7 @@ for k in range(len(objOis)):
         ampRef=ampRef/len(cfg["planet_ois"][planet_ind]["star_indices"])
         visRefs[k] = ampRef*np.exp(1j*np.angle(visRef/len(cfg["planet_ois"][planet_ind]["star_indices"])))#/len(starOis))) ###===###
     
-# in DF_SWAP mode, thephase reference of the star cannot be used. We need to extract the phase ref from the SWAP observations
+# in DF_SWAP mode, the phase reference of the star cannot be used. We need to extract the phase ref from the SWAP observations
 if PHASEREF_MODE == "DF_SWAP":
     printinf("DF_SWAP mode set.")
     printinf("Calculating the reference phase from {:d} swap observation".format(len(swapOis)))
@@ -228,6 +231,18 @@ for k in range(len(objOis)):
     hdul.writeto(oi.filename, overwrite = "True")
     hdul.close()
     
+# IN DF_SWAP mode, we also save the visref in the swap files to allow the user to treat these files with atrometry_reduce
+#if PHASEREF_MODE == "DF_SWAP":
+#    for k in range(len(swapOis)):
+#        oi = swapOis[k]
+#        printinf("Saving reference visibility in {}".format(oi.filename))
+#        hdul = fits.open(oi.filename, mode = "update")
+#        if "EXOGRAV_VISREF" in [hdu.name for hdu in hdul]:
+#            hdul.pop([hdu.name for hdu in hdul].index("EXOGRAV_VISREF"))
+#        hdul.append(fits.BinTableHDU.from_columns([fits.Column(name="EXOGRAV_VISREF", format = str(oi.nwav)+"C32", array = visRefsForSwaps[k].reshape([oi.visOi.nchannel, oi.visOi.nwav]))], name = "EXOGRAV_VISREF"))
+#        hdul.writeto(oi.filename, overwrite = "True")
+#        hdul.close()
+
 if not(FIGDIR is None):
     with PdfPages(FIGDIR+"/phase_reference.pdf") as pdf:
         for k in range(len(objOis)):

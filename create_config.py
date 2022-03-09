@@ -108,21 +108,33 @@ if not("ralim_swap" in dargs.keys()) or not("declim_swap" in dargs.keys()):
 if not("nra" in dargs.keys()):
     printwar("nra not provided in args. Default: nra=100")
     dargs["nra"] = 100
+else:
+    dargs["nra"] = int(dargs["nra"])
 if not("ndec" in dargs.keys()):
     printwar("ndec not provided in args. Default: ndec=100")
     dargs["ndec"] = 100
+else:
+    dargs["ndec"] = int(dargs["ndec"])    
 if not("nopd" in dargs.keys()):
     printwar("nopd not provided in args. Default: to nopd=100")
     dargs["nopd"] = 100
+else:
+    dargs["nopd"] = int(dargs["nopd"])    
 if not("nra_swap" in dargs.keys()):
     printwar("nra_swap not provided in args. Default: nra=100")
     dargs["nra_swap"] = 100
+else:
+    dargs["nra_swap"] = int(dargs["nra_swap"])    
 if not("ndec_swap" in dargs.keys()):
     printwar("ndec_swap not provided in args. Default: ndec=100")
-    dargs["ndec_swap"] = 100    
+    dargs["ndec_swap"] = 100
+else:
+    dargs["ndec_swap"] = int(dargs["ndec_swap"])    
 if not("star_order" in dargs.keys()):
     printwar("star_order not provided in args. Default: star_order=4")
     dargs["star_order"] = 4
+else:
+    dargs["star_order"] = int(dargs["star_order"])    
 if not("gofast" in dargs.keys()):
     printwar("Value for gofast option not set. Defaut: gofast=False")
     dargs['gofast'] = False    
@@ -137,11 +149,15 @@ if not("contrast_file" in dargs.keys()):
     dargs['contrast_file'] = None
 if not("extension" in dargs.keys()):
     printwar("extension not given. Using basic value '10'.")
-    dargs['extension'] = 10    
-
+    dargs['extension'] = 10
+else:
+    dargs["extension"] = int(dargs["extension"])    
 if not("star_diameter" in dargs.keys()):
     printwar("star_diameter not provided in args. Default: star_diameter=0 (point source)")
     dargs["star_diameter"] = 0
+else:
+    dargs["star_diameter"] = float(dargs["star_diameter"])
+    
 
 if not("corr_met" in dargs.keys()):
     printwar("corr_met not specified. Using 'sylvestre'")
