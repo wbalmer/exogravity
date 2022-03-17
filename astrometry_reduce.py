@@ -98,7 +98,7 @@ REDUCTION = cfg["general"]["reduction"]
 PHASEREF_ARCLENGTH_THRESHOLD = cfg["general"]["phaseref_arclength_threshold"]
 FT_FLUX_THRESHOLD = cfg["general"]["ft_flux_threshold"]
 
-# OVERWRITE SOME OF THE CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
+# OVERWRITE SOME CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
 if "gofast" in dargs.keys():
     GO_FAST = dargs["gofast"].lower()=="true" # bypass value from config file
 if "noinv" in dargs.keys():
@@ -107,7 +107,11 @@ if "figdir" in dargs.keys():
     FIGDIR = dargs["figdir"] # bypass value from config file
 if "save_residuals" in dargs.keys():
     SAVE_RESIDUALS = True # bypass value from config file
-
+if "n_ra" in dargs.keys():
+    N_RA = int(dargs["n_ra"])
+if "n_dec" in dargs.keys():
+    N_DEC = int(dargs["n_dec"])
+    
 # LOAD GRAVITY PLOT is savefig requested
 if not(FIGDIR is None):
     from cleanGravity import gravityPlot as gPlot
