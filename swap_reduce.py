@@ -28,6 +28,7 @@ import numpy as np
 import sys, os
 import glob
 import itertools
+import astropy.io.fits as fits
 
 # cleanGravity imports
 import cleanGravity as gravity
@@ -258,6 +259,16 @@ for oi in objOis:
 
 # now its time to plot the chi2Maps in FIGDIR if given
 if not(FIGDIR is None):
+    hdu = fits.PrimaryHDU(chi2Map.transpose(1, 0))
+    hdu.header["CRPIX1"] = 0.0
+    hdu.header["CRVAL1"] = raValues[0]
+    hdu.header["CDELT1"] = raValues[1] - raValues[0]
+    hdu.header["CRPIX2"] = 0.0
+    hdu.header["CRVAL2"] = decValues[0]
+    hdu.header["CDELT2"] = decValues[1] - decValues[0]
+    hdul = fits.HDUList([hdu])
+    hdul.writeto(FIGDIR+"/chi2Map_swap.fits", overwrite = True)
+    
     with PdfPages(FIGDIR+"/swap_fit_results.pdf") as pdf:
         
         for k in range(len(objOis)):
