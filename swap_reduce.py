@@ -76,7 +76,6 @@ REDUCTION = cfg["general"]["reduction"]
 printinf("RA grid set to [{:.2f}, {:.2f}] with {:d} points".format(RA_LIM[0], RA_LIM[1], N_RA))
 printinf("DEC grid set to [{:.2f}, {:.2f}] with {:d} points".format(DEC_LIM[0], DEC_LIM[1], N_DEC))
 
-
 # GET FILES FOR THE SWAP 
 if not("swap_ois" in cfg.keys()):
     printerr("No SWAP files given in {}!".format(CONFIG_FILE))

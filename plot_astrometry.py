@@ -73,8 +73,8 @@ else:
 
 # extract the astrometric solutions
 try:
-    ra = [preduce[list(preduce.keys())[0]]["astrometric_solution"][0] for preduce in cfg["general"]["reduce"]]
-    dec = [preduce[list(preduce.keys())[0]]["astrometric_solution"][1] for preduce in cfg["general"]["reduce"]]
+    ra = [preduce[list(preduce.keys())[0]]["astrometric_solution"][0] for preduce in cfg["general"]["reduce_planets"]]
+    dec = [preduce[list(preduce.keys())[0]]["astrometric_solution"][1] for preduce in cfg["general"]["reduce_planets"]]
     printinf("Astrometry extracted from config file {}".format(CONFIG_FILE))
 except:
     printinf("Please run the script 'astrometryReduce' first.")    
