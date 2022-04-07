@@ -372,6 +372,10 @@ for k in range(len(swapOis)):
         pos = -1
     else:
         pos = 1
+    if (oi.sObjX*sObjX > 0):
+        swap = False
+    else:
+        swap = True
     d = {"filename": oi.filename.split(dargs["datadir"])[1],
          "dit": oi.dit,
          "ndit": oi.ndit,
@@ -379,6 +383,7 @@ for k in range(len(swapOis)):
          "mjd": oi.mjd,
          "sObjX": oi.sObjX,
          "sObjY": oi.sObjY,
+         "swap": swap,         
          "ftMeanFlux": float(np.abs(oi.visOi.visDataFt).mean())/oi.dit         
      }         
     swap_files["w"+str(k)] = d
