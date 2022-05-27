@@ -173,6 +173,8 @@ for k in range(6):
 raValues = np.linspace(RA_LIM[0], RA_LIM[1], N_RA)
 decValues = np.linspace(DEC_LIM[0], DEC_LIM[1], N_DEC)
 chi2Map = np.zeros([N_RA, N_DEC])
+chi2Map_baselines = np.zeros([oi.visOi.nchannel, N_RA, N_DEC])
+
 # to keep track of the best fit
 chi2Best = np.inf
 bestFit = np.zeros([oi.visOi.nchannel, oi.visOi.nwav], "complex")
@@ -205,6 +207,7 @@ for i in range(N_RA):
         visRefS2 = visRefS2/nGoodPointsS2
         visRefSwap = np.sqrt(visRefS1*np.conj(visRefS2))
         chi2Map[i, j] = np.nansum(np.imag(visRefSwap)**2)
+        chi2Map_baselines[:, i, j] = np.nansum(np.imag(visRefSwap)**2, axis = 1)
         if chi2Map[i, j] < chi2Best:
             chi2Best = chi2Map[i, j]
             raBest = ra
@@ -299,3 +302,15 @@ if not(FIGDIR is None):
         ax.set_title(name)
         plt.tight_layout()
         pdf.savefig()
+
+        fig = plt.figure(figsize = (10, 10))
+        for c in range(np.shape(chi2Map_baselines)[0]):
+            ax = fig.add_subplot(3, 2, c+1)
+            ax.imshow(chi2Map_baselines[c, :, :].T, origin = "lower", extent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)])
+            ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
+            ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
+            ax.set_title(oi.basenames[c])
+        plt.tight_layout()
+        pdf.savefig()
+
+        
