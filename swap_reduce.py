@@ -296,20 +296,22 @@ if not(FIGDIR is None):
         ax = fig.add_subplot(1, 1, 1)
         oi = objOis[k]
         name = oi.filename.split('/')[-1]
-        ax.imshow(chi2Map.T, origin = "lower", extent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)])
+        im = ax.imshow(chi2Map.T, origin = "lower", extent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)])
         ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
         ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
         ax.set_title(name)
+        plt.colorbar(im)
         plt.tight_layout()
         pdf.savefig()
 
         fig = plt.figure(figsize = (10, 10))
         for c in range(np.shape(chi2Map_baselines)[0]):
             ax = fig.add_subplot(3, 2, c+1)
-            ax.imshow(chi2Map_baselines[c, :, :].T, origin = "lower", extent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)])
+            im = ax.imshow(chi2Map_baselines[c, :, :].T, origin = "lower", extent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)])
             ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
             ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
             ax.set_title(oi.basenames[c])
+            plt.colorbar(im)            
         plt.tight_layout()
         pdf.savefig()
 
