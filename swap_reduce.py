@@ -187,20 +187,24 @@ for i in range(N_RA):
         dec = decValues[j]
         # reference visibility for group 1        
         visRefS1 = 0*oi.visOi.visRef.mean(axis = 0)
-        # reference visibility for group 2                
-        visRefS2 = 0*oi.visOi.visRef.mean(axis = 0)        
+        nGoodPointsS1 = 0*oi.visOi.visRef.mean(axis = 0) # to keep track of the number of good points to calc the mean
+        # reference visibility for group 2
+        visRefS2 = 0*oi.visOi.visRef.mean(axis = 0)
+        nGoodPointsS2 = 0*oi.visOi.visRef.mean(axis = 0) # to keep track of the number of good points to calc the mean                
         for oi in ois1+ois2:
             this_u = (ra*oi.visOi.uCoord + dec*oi.visOi.vCoord)/1e7
             phase = 2*np.pi*this_u*1e7/3600.0/360.0/1000.0*2*np.pi
             phi = np.exp(1j*phase)
             if oi.swap:
-                visRefS1 = visRefS1+(np.conj(phi)*oi.visOi.visRef).mean(axis = 0)
+                visRefS1 = visRefS1+(np.conj(phi)*oi.visOi.visRef*(1-oi.visOi.flag)).mean(axis = 0)
+                nGoodPointsS1 = nGoodPointsS1+(1-oi.visOi.flag).mean(axis = 0)
             else:
-                visRefS2 = visRefS2+(phi*oi.visOi.visRef).mean(axis = 0)                
-        visRefS1 = visRefS1/len(ois1)
-        visRefS2 = visRefS2/len(ois2)
+                visRefS2 = visRefS2+(phi*oi.visOi.visRef*(1-oi.visOi.flag)).mean(axis = 0)
+                nGoodPointsS2 = nGoodPointsS2+(1-oi.visOi.flag).mean(axis = 0)
+        visRefS1 = visRefS1/nGoodPointsS1
+        visRefS2 = visRefS2/nGoodPointsS2
         visRefSwap = np.sqrt(visRefS1*np.conj(visRefS2))
-        chi2Map[i, j] = np.sum(np.imag(visRefSwap)**2)
+        chi2Map[i, j] = np.nansum(np.imag(visRefSwap)**2)
         if chi2Map[i, j] < chi2Best:
             chi2Best = chi2Map[i, j]
             raBest = ra
