@@ -142,8 +142,8 @@ if not("noinv" in dargs.keys()):
     printwar("Value for noinv option not set. Default: noinv=False")
     dargs['noinv'] = False
 if not("reflag" in dargs.keys()):
-    printwar("Value for reflag not given. Default: reflag = True")
-    dargs['reflag'] = True
+    printwar("Value for reflag not given. Default: reflag = False")
+    dargs['reflag'] = False
 if not("contrast_file" in dargs.keys()):
     printwar("Contrast file not given. Constant contrast will be used")
     dargs['contrast_file'] = None
