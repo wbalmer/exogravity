@@ -187,7 +187,17 @@ for k in range(len(objOis)):
 # in DF_SWAP mode, the phase reference of the star cannot be used. We need to extract the phase ref from the SWAP observations
 if PHASEREF_MODE == "DF_SWAP":
     printinf("DF_SWAP mode set.")
-    printinf("Calculating the reference phase from {:d} swap observation".format(len(swapOis)))
+    # if the swap strategy is requested, we also store the swap amplitude as the amplitude referenc
+    if cfg["general"]["calib_strategy"].lower()=="swap":
+        printinf("Calculating the amplitude reference from {:d} swap observations".format(len([oi for oi in swapOis if oi.swap])))        
+        ampRef = np.zeros([swapOis[0].visOi.nchannel, oi.nwav])        
+        for k in range(len(swapOis)):
+            oi = swapOis[k]
+            if oi.swap:
+                ampRef = ampRef+np.abs(swapOis[k].visOi.visRef).mean(axis = 0)
+        ampRef = ampRef/len([oi for oi in swapOis if oi.swap])
+        visRefs = [0.5*ampRef for visRef in visRefs] # phaseRef will be added after. factor 1/2 because in swap the flux is two times higher than with the usual on-axis    
+    printinf("Calculating the reference phase from {:d} swap observations".format(len(swapOis)))
     # first we need to shift all of the visibilities to the 0 OPD position, using the separation of the SWAP binary
     # if swap ra and dec values are provided (from the swapReduce script), we can use them
     # otherwise we can default to the fiber separation value
