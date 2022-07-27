@@ -93,9 +93,12 @@ if not(FIGDIR is None):
 
 # extract list of useful star ois from the list indicated in the star_indices fields of the config file:
 star_indices = []
-for preduce in cfg["general"]["reduce_planets"]:
-    pkey = preduce[list(preduce.keys())[0]]["planet_oi"]
-    star_indices = star_indices+cfg["planet_ois"][pkey]["star_indices"]
+if cfg["general"]["calib_strategy"].lower() == "all": # in this case we need everything
+    star_indices = list(cfg["star_ois"].keys())
+else:
+    for preduce in cfg["general"]["reduce_planets"]:
+        pkey = preduce[list(preduce.keys())[0]]["planet_oi"]
+        star_indices = star_indices+cfg["planet_ois"][pkey]["star_indices"]        
 star_indices = list(set(star_indices)) # remove duplicates
 STAR_FILES = [DATA_DIR+cfg["star_ois"][k]["filename"] for k in star_indices]
 
