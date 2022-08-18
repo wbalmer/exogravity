@@ -83,10 +83,10 @@ if "figdir" in dargs.keys():
 
 # LOAD GRAVITY PLOT is savefig requested
 if not(FIGDIR is None):
-    from cleanGravity import gravityPlot as gPlot
-    import matplotlib.pyplot as plt
     import matplotlib
-    matplotlib.use('Agg')    
+    matplotlib.use('Agg')        
+    import matplotlib.pyplot as plt    
+    from cleanGravity import gravityPlot as gPlot
     from matplotlib.backends.backend_pdf import PdfPages        
     if not(os.path.isdir(FIGDIR)):
         os.makedirs(FIGDIR)
