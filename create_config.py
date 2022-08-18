@@ -192,6 +192,11 @@ if not("figdir" in dargs.keys()):
     printwar("No figdir given. The output PDF will not be created, and only the terminal output will be available.")
     dargs["figdir"] = None
 
+if not("fiber_pos" in dargs.keys()):
+    printwar("No fiber_pos given. All files will be kept in this reduction")
+    FIBER_POS = None
+else:
+    FIBER_POS = [float(val) for val in dargs["fiber_pos"].split("[")[1].split("]")[-2].split(",")]
 
     
 # load the datafiles
@@ -233,20 +238,26 @@ for k in range(len(datafiles)):
         swapOis.append(oi)
     else:
         printinf(msg+"Assuming file to be on planet.")
-        objOis.append(oi)
+        if not(FIBER_POS is None):
+            if ((oi.sObjX - FIBER_POS[0])**2 + (oi.sObjY - FIBER_POS[1])**2)**0.5>1:
+                printwar("File at is too far for the requested fiber position. This file will be ignored")
+            else:
+                objOis.append(oi)
+        else:
+            objOis.append(oi)
 
 # select the field of the default chi2Maps depending if observations are from UTs or ATs
 if len(objOis) != 0:
     if (objOis[0].stationNames[0] == "U1"):
-        FIELD = 30 # UT field
+        FIELD = 60 # UT field
     else:
-        FIELD = 120 # UT field
+        FIELD = 240 # UT field
 else:
     if len(swapOis) != 0:
         if (swapOis[0].stationNames[0] == "U1"):
-            FIELD = 30 # UT field
+            FIELD = 60 # UT field
         else:
-            FIELD = 120 # UT field    
+            FIELD = 240 # UT field    
 
 if ((dargs["ralim"] is None) or (dargs["ralim"] is None)):
     ra = np.mean(np.array([oi.sObjX for oi in objOis]))
