@@ -455,11 +455,12 @@ if not(FIGDIR is None):
         dDec = decValues[1] - decValues[0]    
         mapExtent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)]
     
-        plt.figure()
+        fig = plt.figure()
         plt.imshow(chi2Map.T, origin = "lower", extent = mapExtent)
         plt.xlabel("$\Delta{}\mathrm{RA}$ (mas)")
         plt.ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
         pdf.savefig()
+        plt.close(fig)
 
         # UV plot
         fig = plt.figure()
@@ -475,6 +476,7 @@ if not(FIGDIR is None):
             else:
                 gPlot.uvMap(np.nanmean(uCoord, axis=0), np.nanmean(vCoord, axis = 0), targetCoord=None, symmetric = True, ax = ax, colors = ["C"+str(c) for c in range(oi.visOi.nchannel)], lim=2*r) 
         pdf.savefig()
+        plt.close(fig)
 
         for k in range(len(objOis)):
             oi = objOis[k]
@@ -487,11 +489,13 @@ if not(FIGDIR is None):
             gPlot.reImPlot(w, np.ma.masked_array(np.conj(wavelet)*bestFits[k], oi.visOi.flag).mean(axis = 0)*waveletMean, fig = fig)
             plt.legend([oi.filename.split("/")[-1], "Astrometry fit"])
             pdf.savefig()
+            plt.close(fig)
             fig = plt.figure(figsize=(10, 8))
             gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.visRef, oi.visOi.flag).mean(axis = 0), subtitles = oi.basenames, fig = fig)
             gPlot.reImPlot(w, np.ma.masked_array(bestFitStars[k], oi.visOi.flag).mean(axis = 0), fig = fig)
             plt.legend([oi.filename.split("/")[-1], "Star fit"])
             pdf.savefig()
+            plt.close(fig)
 
         fig = plt.figure(figsize = (10, 10))
         n = int(np.ceil(np.sqrt(len(objOis)+1)))
@@ -533,6 +537,7 @@ if not(FIGDIR is None):
             ax.set_title(name)
         plt.tight_layout()
         pdf.savefig()
+        plt.close(fig)
 
         fig = plt.figure(figsize = (6, 6))
         ax = fig.add_subplot(111)
@@ -557,6 +562,7 @@ if not(FIGDIR is None):
         ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
         plt.axis("equal")
         pdf.savefig()
+        plt.close(fig)
     
 if SAVE_RESIDUALS:
     np.save(FIGDIR+"/"+"wav.npy", w[0, :])    
