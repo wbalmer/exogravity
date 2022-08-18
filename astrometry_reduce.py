@@ -307,8 +307,8 @@ for k in range(len(objOis)):
             dec = decValues[j]
             A, B = 0., 0.
             kappa2 = 0
-            this_u = (ra*oi.visOi.uCoord + dec*oi.visOi.vCoord)/1e7
-            phase = 2*np.pi*this_u*1e7/3600.0/360.0/1000.0*2*np.pi
+            this_u = (ra*oi.visOi.uCoord + dec*oi.visOi.vCoord)/1e7 
+            phase = 2*np.pi*this_u*1e7/3600.0/360.0/1000.0*2*np.pi 
             phi = np.exp(-1j*phase)*np.abs(visRefs[k])            
             if not(contrast_data is None):
                 phi = phi*contrast_data

@@ -264,7 +264,7 @@ fig = plt.figure()
 ax = fig.add_subplot(111)
 fov = mpl.patches.Circle((sObjX, sObjY), radius, facecolor='none', edgecolor="silver", linewidth=2, linestyle="--")
 ax.add_patch(fov)
-im = plt.imshow(-0.5*chi2Maps.sum(axis=0).T/chi2Refs.sum(axis=0)*ndof, origin = "lower", extent=[np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)], clip_path=fov, clip_on=True, vmin = PMIN, vmax = PMAX)
+im = plt.imshow(-0.5*chi2Maps.sum(axis=0)/chi2Refs.sum(axis=0)*ndof, origin = "lower", extent=[np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)], clip_path=fov, clip_on=True, vmin = PMIN, vmax = PMAX)
 cbar = plt.colorbar()
 cbar.set_label("Periodogram power")
 # hide top and right axis lines
@@ -293,6 +293,8 @@ ax.yaxis.set_label_coords(0.56, 0.3)
 # extent of figure
 plt.xlim(sObjX-radius*1.0, sObjX+radius*1.0)
 plt.ylim(sObjY-radius*1.0, sObjY+radius*1.0)    
+# invert RA axis
+ax.invert_xaxis()
 
 plt.savefig(FIGDIR+"/detection.pdf")
 plt.close()
