@@ -21,8 +21,8 @@ Version:
 # BASIC IMPORTS
 import numpy as np
 import matplotlib as mpl
+mpl.use("Agg")
 import matplotlib.pyplot as plt
-plt.ion()
 import scipy.sparse, scipy.sparse.linalg
 from scipy.linalg import lapack
 import astropy.io.fits as fits
