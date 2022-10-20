@@ -26,7 +26,9 @@ Version:
 """
 import numpy as np
 from cleanGravity.utils import loadFitsSpectrum
+from astropy.io import fits
 from utils import *
+from common import *
 import sys
 try:
     import ruamel.yaml
@@ -57,14 +59,14 @@ if not("notitle" in dargs):
     dargs["notile"] = False            
 
 # arg should be the path to the spectrum
-REQUIRED_ARGS = ["file"]
+REQUIRED_ARGS = ["config_file"]
 for req in REQUIRED_ARGS:
     if not(req in dargs.keys()):
         printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
         stop()
 
-CONFIG_FILE = dargs['file']
-        
+CONFIG_FILE = dargs['config_file']
+
 # READ THE CONFIGURATION FILE
 if RUAMEL:
     cfg = ruamel.yaml.load(open(CONFIG_FILE, "r"), Loader=ruamel.yaml.RoundTripLoader)
@@ -72,16 +74,44 @@ else:
     cfg = yaml.safe_load(open(CONFIG_FILE, "r"))
 
 # extract the astrometric solutions
+CHI2MAP_FOUND = False
 try:
-    ra = [preduce[list(preduce.keys())[0]]["astrometric_solution"][0] for preduce in cfg["general"]["reduce_planets"]]
-    dec = [preduce[list(preduce.keys())[0]]["astrometric_solution"][1] for preduce in cfg["general"]["reduce_planets"]]
-    printinf("Astrometry extracted from config file {}".format(CONFIG_FILE))
-except:
-    printinf("Please run the script 'astrometryReduce' first.")    
-    printerr("Could not extract the astrometry from the config file {}".format(CONFIG_FILE))
+    hdul = fits.open(cfg["general"]["figdir"]+"/chi2Maps.fits")
+    CHI2MAP_FOUND = True    
+    printinf("File chi2Maps.fits found in FIGIDR. The astrometry will be extracted from the chi2Maps.")
+except FileNotFoundError:
+    printwar("No chi2Maps.fits found in FIGIDR. The astrometry will be extracted from the YML file.")    
 
-nfiles = len(cfg['planet_ois'])
+
+if CHI2MAP_FOUND:
+    hdu = hdul[0]
+    chi2Maps = hdu.data
+    n = np.shape(chi2Maps)[1]
+    nfiles = np.shape(chi2Maps)[0]
+    raValues = hdu.header["CRVAL1"] + hdu.header["CDELT1"]*np.array(range(n))
+    decValues = hdu.header["CRVAL2"] + hdu.header["CDELT2"]*np.array(range(n))
+    ra = np.zeros(nfiles)
+    dec = np.zeros(nfiles)    
+    for k in range(nfiles):
+        chi2Map = chi2Maps[k, :, :]
+        ind = np.where(chi2Map == np.min(chi2Map))
+        i, j = ind[0][0], ind[1][0]
+#        i, j = np.where(raValues == ra[k])[0], np.where(decValues == dec[k])[0]
+#        i, j = findLocalMinimum(chi2Maps[k, :, :], i, j, jump_size=5)
+        ra[k] = raValues[i]
+        dec[k] = decValues[j]
+
+else:
+    try:
+        ra = [preduce[list(preduce.keys())[0]]["astrometric_solution"][0] for preduce in cfg["general"]["reduce_planets"]]
+        dec = [preduce[list(preduce.keys())[0]]["astrometric_solution"][1] for preduce in cfg["general"]["reduce_planets"]]
+        printinf("Astrometry extracted from config file {}".format(CONFIG_FILE))
+    except:
+        printinf("Please run the script 'astrometryReduce' first.")    
+        printerr("Could not extract the astrometry from the config file {}".format(CONFIG_FILE))    
     
+nfiles = len(cfg['planet_ois'])
+        
 ra_best = np.mean(ra)
 dec_best = np.mean(dec)
 cov_mat = np.cov(ra, dec)/nfiles
@@ -101,8 +131,7 @@ if dargs['noplot']:
     sys.exit()
 
 
-
-
+    
 # PLOT THE FIGURE
 import matplotlib
 import matplotlib.pyplot as plt
@@ -114,17 +143,19 @@ ax.plot(ra, dec, "o")
 ax.plot([ra_best], [dec_best], '+k')
 
 val, vec = np.linalg.eig(cov_mat)
-e1 = matplotlib.patches.Ellipse((ra_best, dec_best), 2*val[0]**0.5, 2*val[1]**0.5, angle = np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color = 'k', linewidth=2, linestyle = '--')
-e2 = matplotlib.patches.Ellipse((ra_best, dec_best), 3*2*val[0]**0.5, 3*2*val[1]**0.5, angle = np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color = 'k', linewidth=2)
 
 e1Large = matplotlib.patches.Ellipse((ra_best, dec_best), nfiles**0.5*2*val[0]**0.5, nfiles**0.5*2*val[1]**0.5, angle = np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color = 'gray', linewidth=2, linestyle = '--')
 e2Large = matplotlib.patches.Ellipse((ra_best, dec_best), nfiles**0.5*3*2*val[0]**0.5, nfiles**0.5*3*2*val[1]**0.5, angle = np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color = 'gray', linewidth=2)
 
-ax.add_patch(e1)
-ax.add_patch(e2)
+e1 = matplotlib.patches.Ellipse((ra_best, dec_best), 2*val[0]**0.5, 2*val[1]**0.5, angle = np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color = 'k', linewidth=2, linestyle = '--')
+e2 = matplotlib.patches.Ellipse((ra_best, dec_best), 3*2*val[0]**0.5, 3*2*val[1]**0.5, angle = np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color = 'k', linewidth=2)
 
 ax.add_patch(e1Large)
 ax.add_patch(e2Large)
+
+ax.add_patch(e1)
+ax.add_patch(e2)
+
 
 if dargs['labels']:
     for k in range(nfiles):
@@ -135,7 +166,7 @@ ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
 ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
 
 if not(dargs["notitle"]):
-    plt.title(dargs['file'])
+    plt.title(dargs['config_file'])
 
 ax.legend(["Solutions", "Mean solution", "1$\sigma$ dispersion", "3$\sigma$ dispersion", "1$\sigma$ dispersion on mean", "3$\sigma$ dispersion on mean"])
 plt.axis("equal")
