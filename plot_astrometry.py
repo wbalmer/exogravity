@@ -37,7 +37,7 @@ except: # if ruamel not available, switch back to pyyaml, which does not handle 
     import yaml
     RUAMEL = False
 import sys, os
-
+import scipy
 
 # load aguments into a dictionnary
 dargs = args_to_dict(sys.argv)
@@ -56,7 +56,9 @@ if not("cov" in dargs):
 if not("labels" in dargs):
     dargs["labels"] = False
 if not("notitle" in dargs):
-    dargs["notile"] = False            
+    dargs["notile"] = False
+if not("formal_errors" in dargs):
+    dargs["formal_errors"] = False                
 
 # arg should be the path to the spectrum
 REQUIRED_ARGS = ["config_file"]
@@ -75,13 +77,13 @@ else:
 
 # extract the astrometric solutions
 CHI2MAP_FOUND = False
-try:
-    hdul = fits.open(cfg["general"]["figdir"]+"/chi2Maps.fits")
-    CHI2MAP_FOUND = True    
-    printinf("File chi2Maps.fits found in FIGIDR. The astrometry will be extracted from the chi2Maps.")
-except FileNotFoundError:
-    printwar("No chi2Maps.fits found in FIGIDR. The astrometry will be extracted from the YML file.")    
-
+if not(cfg["general"]["figdir"] is None):
+    try:
+        hdul = fits.open(cfg["general"]["figdir"]+"/chi2Maps.fits")
+        CHI2MAP_FOUND = True    
+        printinf("File chi2Maps.fits found in FIGIDR. The astrometry will be extracted from the chi2Maps.")
+    except FileNotFoundError:
+        printwar("No chi2Maps.fits found in FIGIDR. The astrometry will be extracted from the YML file.")    
 
 if CHI2MAP_FOUND:
     hdu = hdul[0]
@@ -91,15 +93,27 @@ if CHI2MAP_FOUND:
     raValues = hdu.header["CRVAL1"] + hdu.header["CDELT1"]*np.array(range(n))
     decValues = hdu.header["CRVAL2"] + hdu.header["CDELT2"]*np.array(range(n))
     ra = np.zeros(nfiles)
-    dec = np.zeros(nfiles)    
+    dec = np.zeros(nfiles)
+    if dargs["formal_errors"]:    
+        ra_var = np.zeros(nfiles)
+        dec_var = np.zeros(nfiles)
+        rho = np.zeros(nfiles)                
     for k in range(nfiles):
-        chi2Map = chi2Maps[k, :, :]
+        chi2Map = chi2Maps[k, :, :].T
         ind = np.where(chi2Map == np.min(chi2Map))
         i, j = ind[0][0], ind[1][0]
-#        i, j = np.where(raValues == ra[k])[0], np.where(decValues == dec[k])[0]
-#        i, j = findLocalMinimum(chi2Maps[k, :, :], i, j, jump_size=5)
         ra[k] = raValues[i]
         dec[k] = decValues[j]
+        if dargs["formal_errors"]:            
+            # get errors from chi2Map
+            dra = raValues[1]-raValues[0]
+            ddec = decValues[1]-decValues[0]            
+            d2chidra2 = (chi2Map[i+1, j]+chi2Map[i-1, j]-2*chi2Map[i, j])/dra**2
+            d2chiddec2 = (chi2Map[i, j+1]+chi2Map[i, j-1]-2*chi2Map[i, j])/ddec**2
+            d2chidraddec = (chi2Map[i, j+1]+chi2Map[i, j-1]-2*chi2Map[i, j]-d2chidra2*dra**2-d2chiddec2*ddec**2)/dra/ddec
+            ra_var[k] = (200*2.3)/(d2chidra2)
+            dec_var[k] = (200*2.3)/(d2chiddec2)
+            rho[k] = (200*2.3)/(d2chidraddec)/ra_var[k]**0.5/dec_var[k]**0.5
 
 else:
     try:
@@ -130,7 +144,6 @@ printinf("One liner CSV: {:.2f},{:.2f},{:.2f},{:.4f},{:.4f},{:.4f}".format(mjd_m
 if dargs['noplot']:
     sys.exit()
 
-
     
 # PLOT THE FIGURE
 import matplotlib
@@ -139,7 +152,7 @@ import matplotlib.pyplot as plt
 fig = plt.figure(figsize=(6, 6))
 ax = fig.add_subplot(111)
 
-ax.plot(ra, dec, "o")
+ax.plot(ra, dec, ".C0")    
 ax.plot([ra_best], [dec_best], '+k')
 
 val, vec = np.linalg.eig(cov_mat)
@@ -156,7 +169,12 @@ ax.add_patch(e2Large)
 ax.add_patch(e1)
 ax.add_patch(e2)
 
-
+# now add individual errors:
+if dargs["formal_errors"]:    
+    for k in range(len(ra)):
+        e = matplotlib.patches.Ellipse((ra[k], dec[k]), 2*ra_var[k]**0.5, 2*dec_var[k]**0.5, angle = np.arctan2(rho[k]*ra_var[k]**0.5*dec_var[k]**0.5, -dec_var[k])/np.pi*180.0, fill=False, color = 'C0', linewidth=1, linestyle = '-')    
+        ax.add_patch(e)
+    
 if dargs['labels']:
     for k in range(nfiles):
         plt.text(ra[k], dec[k], cfg["planet_ois"].keys()[k])

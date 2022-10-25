@@ -96,37 +96,40 @@ if dargs["fig"] is None:
 else:
     fig = plt.figure(int(dargs["fig"]))
     ax1 = fig.get_axes()[0]
-    ax2 = fig.get_axes()[1]    
+    ax2 = fig.get_axes()[1]
+    
+# plot cov
+if dargs["cov"]:
+    plt.figure()
+    plt.imshow(contrastCov.T, origin = "lower", vmin = -2e-13, vmax = 2e-13, extent = [np.min(wav), np.max(wav), np.min(wav), np.max(wav)])
+    plt.xlabel("Wavelength ($\mu$m)")
+    plt.ylabel("Wavelength ($\mu$m)")    
+
+    for k in range(30):
+        noise = np.random.multivariate_normal(0*contrast, contrastCov)*1.5
+        ax1.plot(wav, (contrast+noise)*1e4, "-C7", alpha = 0.2)
 
 # contrast spectrum
 if dargs['noerr']:
-    ax1.plot(wav, contrast*1e4, 'gray')
+    ax1.plot(wav, contrast*1e4, dargs['color'], marker=".")
 else:
     ax1.errorbar(wav, contrast*1e4, yerr=contrastErr*1e4, fmt = '.', color = dargs["color"], capsize=2, markeredgecolor = 'k')
+
 if dargs["fig"] is None:        
     ax1.set_ylabel("Contrast ($\\times{}10^{-4}$)")
     ax1.set_xlabel("Wavelength ($\mu\mathrm{m})$")
     if not(dargs["notitle"]):
         ax1.set_title(dargs["file"].split('/')[-1])
 
+
 # flux spectrum
 if dargs['noerr']:
-    ax2.plot(wav, flux*1e15, color = dargs['color'])
+    ax2.plot(wav, flux*1e15, color = dargs['color'], marker=".")
 else:
     ax2.errorbar(wav, flux*1e15, yerr=fluxErr*1e15, fmt = '.', color = dargs['color'], capsize=2, markeredgecolor = 'k')
 if dargs["fig"] is None:    
     ax2.set_ylabel("Flux ($10^{-15}\,\mathrm{W}/\mathrm{m}^2/\mu\mathrm{m}$)")
     ax2.set_xlabel("Wavelength ($\mu\mathrm{m}$)")
-
-
-# plot cov
-if dargs["cov"]:
-    plt.figure()
-    plt.imshow(contrastCov.T, origin = "lower")
-    
-    plt.figure()
-    x = np.random.multivariate_normal(0, contrastCov)
-    ax1.errorbar(wav, x*1e4, yerr=contrastErr*1e4, fmt = '.', color = dargs["color"], capsize=2, markeredgecolor = 'k')
 
 # show figure only is fig not given
 if dargs["fig"] is None:

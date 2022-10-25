@@ -139,6 +139,7 @@ if len(ois2) == 0:
 if REDUCTION == "astrored":
     for k in range(len(SWAP_FILES)):
         oi = objOis[k]
+        oi.calibrateWithFlux()
         # explicitly set ignored dits to NAN
         if not(SWAP_REJECT_DITS[k] is None):
             if len(SWAP_REJECT_DITS[k]) > 0:
