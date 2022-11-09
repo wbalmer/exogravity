@@ -189,21 +189,21 @@ for i in range(N_RA):
     for j in range(N_DEC):
         dec = decValues[j]
         # reference visibility for group 1        
-        visRefS1 = 0*oi.visOi.visRef.mean(axis = 0)
-        nGoodPointsS1 = 0*oi.visOi.visRef.mean(axis = 0) # to keep track of the number of good points to calc the mean
+        visRefS1 = np.zeros([oi.visOi.nchannel, oi.nwav], "complex")
+        nGoodPointsS1 = np.zeros([oi.visOi.nchannel, oi.nwav]) # to keep track of the number of good points to calc the mean
         # reference visibility for group 2
-        visRefS2 = 0*oi.visOi.visRef.mean(axis = 0)
-        nGoodPointsS2 = 0*oi.visOi.visRef.mean(axis = 0) # to keep track of the number of good points to calc the mean                
+        visRefS2 = np.zeros([oi.visOi.nchannel, oi.nwav], "complex")
+        nGoodPointsS2 = np.zeros([oi.visOi.nchannel, oi.nwav]) # to keep track of the number of good points to calc the mean                
         for oi in ois1+ois2:
             this_u = (ra*oi.visOi.uCoord + dec*oi.visOi.vCoord)/1e7
             phase = 2*np.pi*this_u*1e7/3600.0/360.0/1000.0*2*np.pi
             phi = np.exp(1j*phase)
             if oi.swap:
-                visRefS1 = visRefS1+(np.conj(phi)*oi.visOi.visRef*(1-oi.visOi.flag)).mean(axis = 0)
-                nGoodPointsS1 = nGoodPointsS1+(1-oi.visOi.flag).mean(axis = 0)
+                visRefS1 = visRefS1+np.nansum(np.conj(phi)*oi.visOi.visRef*(1-oi.visOi.flag), axis = 0)
+                nGoodPointsS1 = nGoodPointsS1+(1-oi.visOi.flag).sum(axis = 0)
             else:
-                visRefS2 = visRefS2+(phi*oi.visOi.visRef*(1-oi.visOi.flag)).mean(axis = 0)
-                nGoodPointsS2 = nGoodPointsS2+(1-oi.visOi.flag).mean(axis = 0)
+                visRefS2 = visRefS2+np.nansum(phi*oi.visOi.visRef*(1-oi.visOi.flag), axis = 0)
+                nGoodPointsS2 = nGoodPointsS2+(1-oi.visOi.flag).sum(axis = 0)
         visRefS1 = visRefS1/nGoodPointsS1
         visRefS2 = visRefS2/nGoodPointsS2
         visRefSwap = np.sqrt(visRefS1*np.conj(visRefS2))
@@ -215,7 +215,7 @@ for i in range(N_RA):
             decBest = dec
             bestFit = np.real(visRefSwap)+0j
             visRefSwapBest = visRefSwap
-            
+
 printinf("Best astrometry solution: RA={}, DEC={}".format(raBest, decBest))
 # get the astrometric values and calculate the mean, and add it to the YML file (same value for all swap Ois)
 for key in cfg['swap_ois'].keys():
@@ -237,17 +237,17 @@ for oi in ois1+ois2:
         oi.visOi.recenterPhase(raBest, decBest)
 
 # coadd elements in each group to obtain a reference visibility at each position of the swap            
-visRefS1 = 0*oi.visOi.visRef.mean(axis = 0)
-visRefS2 = 0*oi.visOi.visRef.mean(axis = 0)
+visRefS1 = np.zeros([oi.visOi.nchannel, oi.nwav], "complex")
+visRefS2 = np.zeros([oi.visOi.nchannel, oi.nwav], "complex")
 printinf("Calculating reference visibility for group 1")
 for k in range(len(ois1)):
     oi = ois1[k]
-    visRefS1 = visRefS1+oi.visOi.visRef.mean(axis = 0)
+    visRefS1 = visRefS1+np.nanmean(oi.visOi.visRef, axis = 0)
 visRefS1 = visRefS1/len(ois1)
 printinf("Calculating reference visibility for group 2")
 for k in range(len(ois2)):
     oi = ois2[k]
-    visRefS2 = visRefS2+oi.visOi.visRef.mean(axis = 0)
+    visRefS2 = visRefS2+np.nanmean(oi.visOi.visRef, axis = 0)
 visRefS2 = visRefS2/len(ois2)
 printinf("Recentering OBs on initial positions")
 for oi in ois1+ois2:
