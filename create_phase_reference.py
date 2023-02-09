@@ -169,29 +169,35 @@ for c in range(oi.visOi.nchannel):
 # create the visibility reference. This step depends on PHASEREF_MODE (DF_STAR or DF_SWAP)
 printinf("Creating the visibility reference from {:d} star observations.".format(len(starOis)))
 visRefs = [oi.visOi.visRef.mean(axis=0)*0 for oi in objOis]
-for k in range(len(objOis)):
-    preduce = cfg["general"]["reduce_planets"][k]
-    planet_ind = preduce[list(preduce.keys())[0]]["planet_oi"]
-    ampRef = np.zeros([oi.visOi.nchannel, oi.nwav])
-    visRef = np.zeros([oi.visOi.nchannel, oi.nwav], "complex")
-    if cfg["general"]["calib_strategy"].lower()=="none":
-        ampRef = ampRef+1 # put the amplitude reference to one if no calibration strategy is used
-        visRefs[k] = ampRef
-    else: # otherwise, create the amplitude reference from the proper on-star observations
-        for ind in cfg["planet_ois"][planet_ind]["star_indices"]:
-            # not all star files have been loaded, so we cannot trust the order and we need to explicitly look for the correct one
-            starOis_ind = [soi.filename for soi in starOis].index(DATA_DIR+cfg["star_ois"][ind]["filename"]) 
-            soi = starOis[starOis_ind]
-            visRef = visRef+soi.visOi.visRef.mean(axis = 0)
-            #        ampRef = ampRef+soi.fluxOi.flux.mean(axis = 0).mean(axis = 0)#np.abs(soi.visOi.visRef.mean(axis = 0))
-            ampRef = ampRef+np.abs(soi.visOi.visRef.mean(axis = 0))
-        ampRef=ampRef/len(cfg["planet_ois"][planet_ind]["star_indices"])
-        visRefs[k] = ampRef*np.exp(1j*np.angle(visRef/len(cfg["planet_ois"][planet_ind]["star_indices"])))#/len(starOis))) ###===###
+
+# in DF_STAR mode, the phase reference of the star is used
+# IN DF_SWAP, we also need to go through this step to retrieve amplitude of the star for reference
+if (PHASEREF_MODE == "DF_STAR") or (PHASEREF_MODE == "DF_SWAP"):
+    for k in range(len(objOis)):
+        preduce = cfg["general"]["reduce_planets"][k]
+        planet_ind = preduce[list(preduce.keys())[0]]["planet_oi"]
+        ampRef = np.zeros([oi.visOi.nchannel, oi.nwav])
+        visRef = np.zeros([oi.visOi.nchannel, oi.nwav], "complex")
+        if cfg["general"]["calib_strategy"].lower()=="none":
+            ampRef = ampRef+1 # put the amplitude reference to one if no calibration strategy is used
+            visRefs[k] = ampRef # no vis reference in this cas
+        if cfg["general"]["calib_strategy"].lower()=="self":
+            ampRef = np.abs(objOis[k].visOi.visRef).mean(axis=0)
+            visRefs[k] = ampRef # no vis reference in this case
+        else: # otherwise, create the amplitude reference from the proper on-star observations
+            for ind in cfg["planet_ois"][planet_ind]["star_indices"]: 
+                # not all star files may have been loaded, so we cannot trust the order and we need to explicitly look for the correct one
+                starOis_ind = [soi.filename for soi in starOis].index(DATA_DIR+cfg["star_ois"][ind]["filename"]) 
+                soi = starOis[starOis_ind]
+                visRef = visRef+soi.visOi.visRef.mean(axis = 0)
+                ampRef = ampRef+np.abs(soi.visOi.visRef.mean(axis = 0))
+            ampRef=ampRef/len(cfg["planet_ois"][planet_ind]["star_indices"])
+            visRefs[k] = ampRef*np.exp(1j*np.angle(visRef/len(cfg["planet_ois"][planet_ind]["star_indices"])))#/len(starOis))) ###===###
     
 # in DF_SWAP mode, the phase reference of the star cannot be used. We need to extract the phase ref from the SWAP observations
 if PHASEREF_MODE == "DF_SWAP":
     printinf("DF_SWAP mode set.")
-    # if the swap strategy is requested, we also store the swap amplitude as the amplitude referenc
+    # if the swap strategy is requested, we also store the swap amplitude as the amplitude reference
     if cfg["general"]["calib_strategy"].lower()=="swap":
         printinf("Calculating the amplitude reference from {:d} swap observations".format(len([oi for oi in swapOis if oi.swap])))        
         ampRef = np.zeros([swapOis[0].visOi.nchannel, oi.nwav])        
@@ -245,18 +251,6 @@ for k in range(len(objOis)):
     hdul.writeto(oi.filename, overwrite = "True")
     hdul.close()
     
-# IN DF_SWAP mode, we also save the visref in the swap files to allow the user to treat these files with atrometry_reduce
-#if PHASEREF_MODE == "DF_SWAP":
-#    for k in range(len(swapOis)):
-#        oi = swapOis[k]
-#        printinf("Saving reference visibility in {}".format(oi.filename))
-#        hdul = fits.open(oi.filename, mode = "update")
-#        if "EXOGRAV_VISREF" in [hdu.name for hdu in hdul]:
-#            hdul.pop([hdu.name for hdu in hdul].index("EXOGRAV_VISREF"))
-#        hdul.append(fits.BinTableHDU.from_columns([fits.Column(name="EXOGRAV_VISREF", format = str(oi.nwav)+"C32", array = visRefsForSwaps[k].reshape([oi.visOi.nchannel, oi.visOi.nwav]))], name = "EXOGRAV_VISREF"))
-#        hdul.writeto(oi.filename, overwrite = "True")
-#        hdul.close()
-
 if not(FIGDIR is None):
     with PdfPages(FIGDIR+"/phase_reference.pdf") as pdf:
         for k in range(len(objOis)):
