@@ -158,8 +158,8 @@ if REDUCTION == "astrored":
                 oi.visOi.flagPoints((a, b, c))
                 printinf("Ignoring some baselines in file {}".format(oi.filename))
     
-printinf("gofast flag is set. Averaging over DITs")
 if (GO_FAST):
+    printinf("gofast flag is set. Averaging over DITs")
     for oi in objOis:
         printinf("Averaging file {}".format(oi.filename))
         oi.visOi.recenterPhase(oi.sObjX, oi.sObjY) # mean should be calculated in the frame of the SC
