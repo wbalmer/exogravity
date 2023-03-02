@@ -181,7 +181,7 @@ if (PHASEREF_MODE == "DF_STAR") or (PHASEREF_MODE == "DF_SWAP"):
         if cfg["general"]["calib_strategy"].lower()=="none":
             ampRef = ampRef+1 # put the amplitude reference to one if no calibration strategy is used
             visRefs[k] = ampRef # no vis reference in this cas
-        if cfg["general"]["calib_strategy"].lower()=="self":
+        elif cfg["general"]["calib_strategy"].lower()=="self":
             ampRef = np.abs(objOis[k].visOi.visRef).mean(axis=0)
             visRefs[k] = ampRef # no vis reference in this case
         else: # otherwise, create the amplitude reference from the proper on-star observations
