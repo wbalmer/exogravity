@@ -226,10 +226,6 @@ for k in range(len(datafiles)):
     oi.visOi.scaleVisibilities(1.0/oi.dit)
     d = (oi.sObjX**2+oi.sObjY**2 )**0.5
     msg = "Target is {}; Fiber distance is {:.2f} mas. ".format(oi.target, d)
-    if not(dargs['target'] is None):
-        if dargs['target'] != oi.target:
-            printinf("Target does not match the provided target name. Skipping this file.")
-            continue
     if d < 10:
         printinf(msg+"Assuming file to be on star.")
         starOis.append(oi)
@@ -237,6 +233,10 @@ for k in range(len(datafiles)):
         printinf(msg+"Target is {}. This is a SWAP!".format(oi.target))
         swapOis.append(oi)
     else:
+        if not(dargs['target'] is None):
+            if dargs['target'] != oi.target:
+                printinf("Target does not match the provided target name. Skipping this file.")
+                continue                        
         printinf(msg+"Assuming file to be on planet.")
         if not(FIBER_POS is None):
             if ((oi.sObjX - FIBER_POS[0])**2 + (oi.sObjY - FIBER_POS[1])**2)**0.5>1:
