@@ -21,6 +21,7 @@ Version:
   xx.xx
 """
 import numpy as np
+from astropy.io import fits
 from cleanGravity.utils import loadFitsSpectrum, saveFitsSpectrum
 from utils import *
 import sys
@@ -66,14 +67,16 @@ for k in range(len(lines)):
     splitted = line.split()
     w = float(splitted[0].replace('D','E'))
     f = float(splitted[1].replace('D','E'))
-    data[k, 0] = w#*1e-4
+    data[k, 0] = w*1e-4
     data[k, 1] = f
-ind = np.where(((data[:, 0]<=np.max(wav)) & (data[:, 0]>=np.min(wav))))[0]
+
+# cut on required wavelength (ESO filter and grid of spectrum to normalize)
+ind = np.where((data[:, 0]<=np.max(np.concatenate([wav, eso_wav]))) & (data[:, 0]>=np.min(np.concatenate([wav, eso_wav]))))[0]
 data=data[ind, :]
-#data[:, 1]=10**(data[:, 1]-8)
+data[:, 1]=10**(data[:, 1]-8)
 
 # guess the resolution from the data
-res = wav[0]/(wav[1]-wav[0])
+res = np.abs(wav[0]/(wav[1]-wav[0]))
 if res > 1000:
     R = 4000 # highres
 elif res > 100:
@@ -107,7 +110,10 @@ flux = contrast*flux_stellar*norm
 fluxCov = contrastCov*(flux_stellar*norm)**2
 
 # save normalized spectrum
-saveFitsSpectrum(dargs['file'], wav, flux, fluxCov, contrast, contrastCov)
+# get instrument name from header
+hdr = fits.open(dargs["file"])[0].header
+instrument = hdr["INSTRU"]
+saveFitsSpectrum(dargs['file'], wav, flux, fluxCov, contrast, contrastCov, instrument=instrument)
 
 
 
