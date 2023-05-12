@@ -74,6 +74,7 @@ PHASEREF_MODE = cfg["general"]["phaseref_mode"]
 CONTRAST_FILE = cfg["general"]["contrast_file"]
 NO_INV = cfg["general"]["noinv"]
 GO_FAST = cfg["general"]["gofast"]
+GRADIENT = cfg["general"]["gradient"]
 FIGDIR = cfg["general"]["figdir"]
 SAVE_RESIDUALS = cfg["general"]["save_residuals"]
 PLANET_FILES = [DATA_DIR+cfg["planet_ois"][preduce[list(preduce.keys())[0]]["planet_oi"]]["filename"] for preduce in cfg["general"]["reduce_planets"]]
@@ -107,10 +108,16 @@ if "figdir" in dargs.keys():
     FIGDIR = dargs["figdir"] # bypass value from config file
 if "save_residuals" in dargs.keys():
     SAVE_RESIDUALS = True # bypass value from config file
+if "ralim" in dargs.keys():
+    RA_LIM = [float(dummy) for dummy in dargs["ralim"].replace("[", "").replace("]", "").split(",")]
 if "n_ra" in dargs.keys():
     N_RA = int(dargs["n_ra"])
+if "declim" in dargs.keys():
+    DEC_LIM = [float(dummy) for dummy in dargs["declim"].replace("[", "").replace("]", "").split(",")]    
 if "n_dec" in dargs.keys():
     N_DEC = int(dargs["n_dec"])
+if "gradient" in dargs.keys():
+    GRADIENT = dargs["gradient"].lower()=="true" # bypass value from config file
     
 # LOAD GRAVITY PLOT is savefig requested
 if not(FIGDIR is None):
@@ -282,6 +289,40 @@ for k in range(len(objOis)):
             #T, info = lapack.dpotri(ZZ)
             #oi.visOi.W2inv[dit][c] = np.triu(T) + np.triu(T, k=1).T
 
+# A function to calculate the chi2 for a given oi and ra/dec
+def compute_chi2(oi, ra, dec):
+    # prepare array
+    phi_values = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], 'complex')
+    # calculate As and Bs
+    A, B = 0., 0.
+    kappa2 = 0
+    this_u = (ra*oi.visOi.uCoord + dec*oi.visOi.vCoord)/1e7 
+    phase = 2*np.pi*this_u*1e7/3600.0/360.0/1000.0*2*np.pi 
+    phi = np.exp(-1j*phase)*np.abs(visRefs[k])            
+    if not(contrast_data is None):
+        phi = phi*contrast_data
+    phiProj = [[[] for c in range(oi.visOi.nchannel)] for dit in range(oi.visOi.ndit)]
+    for dit in range(oi.visOi.ndit):
+        for c in range(oi.visOi.nchannel):
+            m = int(oi.visOi.m[dit, c])
+            bad_indices = np.where(oi.visOi.flag[dit, c, :])
+            phi[dit, c, bad_indices] = 0
+            phiProj[dit][c] = np.dot(oi.visOi.h_matrices[dit, c, 0:m, :], phi[dit, c, :])
+    for dit in range(oi.visOi.ndit):
+        for c in range(oi.visOi.nchannel):
+            phiProj2 = cs.conj_extended(phiProj[dit][c])
+            PV2 = cs.conj_extended(oi.visOi.visProj[dit][c])            
+            Q = np.dot(cs.adj(phiProj2), oi.visOi.W2inv[dit][c])
+            A = A+np.real(np.dot(Q, PV2))
+            B = B+np.real(np.dot(Q, phiProj2))
+    kappa = A/B
+    if kappa < 0: # negative contrast if forbidden
+        kappa = 0
+        return 0, 0
+    else:
+        return -A**2/B, kappa
+
+# use the above function to fill out the chi2 maps
 # prepare chi2Maps
 printinf("RA grid: [{:.2f}, {:.2f}] with {:d} points".format(RA_LIM[0], RA_LIM[1], N_RA))
 printinf("DEC grid: [{:.2f}, {:.2f}] with {:d} points".format(DEC_LIM[0], DEC_LIM[1], N_DEC))
@@ -293,55 +334,42 @@ bestFits = []
 kappas = np.zeros(len(objOis))
 raBests = np.zeros(len(objOis))
 decBests = np.zeros(len(objOis))
+bestFitStars = []    
 
-for k in range(len(objOis)):
-    oi = objOis[k]
-    chi2Best = np.inf
-    # prepare array
-    phi_values = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], 'complex')
-    # calculate As and Bs
-    phiBest = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex")
+for k in range(len(objOis)):        
     printinf("Calculating chi2Map for file {}".format(oi.filename))
+    chi2Best = np.inf
     for i in range(N_RA):
         for j in range(N_DEC):
             ra = raValues[i]
             dec = decValues[j]
-            A, B = 0., 0.
-            kappa2 = 0
-            this_u = (ra*oi.visOi.uCoord + dec*oi.visOi.vCoord)/1e7 
-            phase = 2*np.pi*this_u*1e7/3600.0/360.0/1000.0*2*np.pi 
-            phi = np.exp(-1j*phase)*np.abs(visRefs[k])            
-            if not(contrast_data is None):
-                phi = phi*contrast_data
-            phiProj = [[[] for c in range(oi.visOi.nchannel)] for dit in range(oi.visOi.ndit)]
-            for dit in range(oi.visOi.ndit):
-                for c in range(oi.visOi.nchannel):
-                    m = int(oi.visOi.m[dit, c])
-                    bad_indices = np.where(oi.visOi.flag[dit, c, :])
-                    phi[dit, c, bad_indices] = 0
-                    phiProj[dit][c] = np.dot(oi.visOi.h_matrices[dit, c, 0:m, :], phi[dit, c, :])
-            for dit in range(oi.visOi.ndit):
-                for c in range(oi.visOi.nchannel):
-                    phiProj2 = cs.conj_extended(phiProj[dit][c])
-                    PV2 = cs.conj_extended(oi.visOi.visProj[dit][c])            
-                    Q = np.dot(cs.adj(phiProj2), oi.visOi.W2inv[dit][c])
-                    A = A+np.real(np.dot(Q, PV2))
-                    B = B+np.real(np.dot(Q, phiProj2))
-            kappa = A/B
-            chi2Maps[k, i, j] = -A**2/B # constant term was removed in this formula
-            if kappa < 0: # negative contrast if forbidden
-                kappa = 0
-                chi2Maps[k, i, j] = 0 # 0 is the reference chi2 in the calculations, since constant term of the likelihood was removed
+            chi2, kappa = compute_chi2(objOis[k], ra, dec)
+            chi2Maps[k, i, j] = chi2
             if chi2Maps[k, i, j] < chi2Best:
-                phiBest = kappa*phi
                 chi2Best = chi2Maps[k, i, j]
                 raBests[k] = ra
                 decBests[k] = dec
-                kappas[k] = kappa
-    bestFits.append(phiBest)
+                kappas[k] = kappa                
+                this_u = (ra*objOis[k].visOi.uCoord + dec*objOis[k].visOi.vCoord)/1e7 
+                phase = 2*np.pi*this_u*1e7/3600.0/360.0/1000.0*2*np.pi 
+                phi = np.exp(-1j*phase)*np.abs(visRefs[k])                            
+                phiBest = kappa*phi
+    bestFits.append(phiBest)            
 
-# calculate best fit with only a star model by projetting visibilities                
-bestFitStars = []
+# the best values found in chi2 map will be our guesses for gradient descent if requested
+raGuesses = np.copy(raBests)
+decGuesses = np.copy(decBests)
+    
+# if gradient descent is requested, we use the best chi2 to start a gradient search for true minimum
+if GRADIENT:
+    for k in range(len(objOis)):
+        printinf("Performing gradient-descent for file {}".format(oi.filename))        
+        chi2 = lambda astro : compute_chi2(objOis[k], astro[0], astro[1])[0] # only chi2, not kappa
+        opt = scipy.optimize.minimize(chi2, x0=[raBests[k], decBests[k]])
+        raBests[k] = opt["x"][0]
+        decBests[k] = opt["x"][1]
+
+# calculate the best fits
 for k in range(len(objOis)):
     oi = objOis[k]
     bestFitStar = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex")
@@ -380,7 +408,7 @@ for k in range(len(objOis)):
 bestOpds = np.zeros([len(objOis), objOis[0].visOi.nchannel])
 for k in range(len(objOis)):
     oi = objOis[k]
-    printwar("Looking for best OPD on each baseline for file {}".format(objOis[k].filename))    
+    printinf("Looking for best OPD on each baseline for file {}".format(objOis[k].filename))    
     opdLimits = np.zeros([oi.visOi.nchannel, 2]) # min and max for each channel
     opdLimits[:, 0] = +np.inf
     opdLimits[:, 1] = -np.inf
@@ -426,6 +454,7 @@ printinf("Contrast obtained (mean, min, max): {:.2e}, {:.2e}, {:.2e}".format(np.
 
 for k in range(len(PLANET_FILES)):
     preduce = cfg["general"]["reduce_planets"][k]
+    preduce[list(preduce.keys())[0]]["astrometric_guess"] = [float(raGuesses[k]), float(decGuesses[k])] # YAML cannot convert numpy types    
     preduce[list(preduce.keys())[0]]["astrometric_solution"] = [float(raBests[k]), float(decBests[k])] # YAML cannot convert numpy types
             
 f = open(CONFIG_FILE, "w")
@@ -541,15 +570,19 @@ if not(FIGDIR is None):
 
         fig = plt.figure(figsize = (6, 6))
         ax = fig.add_subplot(111)
+        ax.plot(raGuesses, decGuesses, "oC0", alpha = 0.3)
         ax.plot(raBests, decBests, "oC0")
-        ax.plot(raBests_local, decBests_local, "oC1")    
+        ax.plot(raBests_local, decBests_local, "oC1")
+        for k in range(len(objOis)):
+            ax.plot([raGuesses[k], raBests[k]], [decGuesses[k], decBests[k]], "C0", linestyle = "dotted", alpha = 0.3)
+            
         val, vec = np.linalg.eig(cov)
         e1=matplotlib.patches.Ellipse((raBests.mean(),decBests.mean()), 2*val[0]**0.5, 2*val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C0', linewidth=2, linestyle='--')
         e2=matplotlib.patches.Ellipse((np.mean(raBests), np.mean(decBests)), 3*2*val[0]**0.5, 3*2*val[1]**0.5, angle=np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color='C0', linewidth=2)
         ax.add_patch(e1)
         ax.add_patch(e2)    
         ax.plot([np.mean(raBests)], [np.mean(decBests)], '+C0')
-        ax.text(raBests.mean()+val[0]**0.5, decBests.mean()+val[1]**0.5, "RA={:.2f}+-{:.3f}\nDEC={:.2f}+-{:.3f}\nCOV={:.2f}".format(np.mean(raBests), cov[0, 0]**0.5, np.mean(decBests), cov[1, 1]**0.5, cov[0, 1]/np.sqrt(cov[0, 0]*cov[1, 1])))
+        ax.text(raBests.mean()+val[0]**0.5, decBests.mean()+val[1]**0.5, "RA={:.2f}+-{:.3f}\nDEC={:.2f}+-{:.3f}\nCOV={:.2f}".format(np.mean(raBests), cov[0, 0]**0.5, np.mean(decBests), cov[1, 1]**0.5, cov[0, 1]/np.sqrt(cov[0, 0]*cov[1, 1])), color="C0")
     
         val, vec = np.linalg.eig(cov_local)
         e1=matplotlib.patches.Ellipse((raBests_local.mean(), decBests_local.mean()), 2*val[0]**0.5, 2*val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C1', linewidth=2, linestyle='--')
@@ -557,10 +590,12 @@ if not(FIGDIR is None):
         ax.add_patch(e1)
         ax.add_patch(e2)    
         ax.plot([np.mean(raBests_local)], [np.mean(decBests_local)], '+C1')
-        ax.text(raBests_local.mean()-val[0]**0.5, decBests_local.mean()-val[1]**0.5, "RA={:.2f}+-{:.3f}\nDEC={:.2f}+-{:.3f}\nCOV={:.2f}".format(np.mean(raBests_local), cov_local[0, 0]**0.5, np.mean(decBests_local), cov_local[1, 1]**0.5, cov_local[0, 1]/np.sqrt(cov_local[0, 0]*cov_local[1, 1])))    
+        ax.text(raBests_local.mean()-val[0]**0.5, decBests_local.mean()-val[1]**0.5, "RA={:.2f}+-{:.3f}\nDEC={:.2f}+-{:.3f}\nCOV={:.2f}".format(np.mean(raBests_local), cov_local[0, 0]**0.5, np.mean(decBests_local), cov_local[1, 1]**0.5, cov_local[0, 1]/np.sqrt(cov_local[0, 0]*cov_local[1, 1])), color="C1")
+
+        ax.legend(["Best guess", "Gradient descent", "local"])
         ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
         ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
-        plt.axis("equal")
+        plt.axis("equal")       
         pdf.savefig()
         plt.close(fig)
     

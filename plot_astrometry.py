@@ -76,6 +76,9 @@ else:
     cfg = yaml.safe_load(open(CONFIG_FILE, "r"))
 
 # extract the astrometric solutions
+
+# DEPRECATED SINCE USING GRADIENT DESCENT IN ASTROMETRY_REDUCE
+"""
 CHI2MAP_FOUND = False
 if not(cfg["general"]["figdir"] is None):
     try:
@@ -123,7 +126,17 @@ else:
     except:
         printinf("Please run the script 'astrometryReduce' first.")    
         printerr("Could not extract the astrometry from the config file {}".format(CONFIG_FILE))    
-    
+"""
+
+try:
+    ra = [preduce[list(preduce.keys())[0]]["astrometric_solution"][0] for preduce in cfg["general"]["reduce_planets"]]
+    dec = [preduce[list(preduce.keys())[0]]["astrometric_solution"][1] for preduce in cfg["general"]["reduce_planets"]]
+    printinf("Astrometry extracted from config file {}".format(CONFIG_FILE))
+except:
+        printinf("Please run the script 'astrometryReduce' first.")    
+        printerr("Could not extract the astrometry from the config file {}".format(CONFIG_FILE))    
+
+
 nfiles = len(cfg['planet_ois'])
         
 ra_best = np.mean(ra)
@@ -152,7 +165,7 @@ import matplotlib.pyplot as plt
 fig = plt.figure(figsize=(6, 6))
 ax = fig.add_subplot(111)
 
-ax.plot(ra, dec, ".C0")    
+ax.plot(ra, dec, "oC0")    
 ax.plot([ra_best], [dec_best], '+k')
 
 val, vec = np.linalg.eig(cov_mat)
