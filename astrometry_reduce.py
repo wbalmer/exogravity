@@ -75,6 +75,7 @@ CONTRAST_FILE = cfg["general"]["contrast_file"]
 NO_INV = cfg["general"]["noinv"]
 GO_FAST = cfg["general"]["gofast"]
 GRADIENT = cfg["general"]["gradient"]
+USE_LOCAL = cfg["general"]["use_local"]
 FIGDIR = cfg["general"]["figdir"]
 SAVE_RESIDUALS = cfg["general"]["save_residuals"]
 PLANET_FILES = [DATA_DIR+cfg["planet_ois"][preduce[list(preduce.keys())[0]]["planet_oi"]]["filename"] for preduce in cfg["general"]["reduce_planets"]]
@@ -118,6 +119,8 @@ if "n_dec" in dargs.keys():
     N_DEC = int(dargs["n_dec"])
 if "gradient" in dargs.keys():
     GRADIENT = dargs["gradient"].lower()=="true" # bypass value from config file
+if "use_local" in dargs.keys():
+    USE_LOCAL = dargs["use_local"].lower()=="true" # bypass value from config file    
     
 # LOAD GRAVITY PLOT is savefig requested
 if not(FIGDIR is None):
@@ -332,8 +335,8 @@ chi2Maps = np.zeros([len(objOis), N_RA, N_DEC])
 # to store best fits values on each file
 bestFits = []
 kappas = np.zeros(len(objOis))
-raBests = np.zeros(len(objOis))
-decBests = np.zeros(len(objOis))
+raBests_global = np.zeros(len(objOis))
+decBests_global = np.zeros(len(objOis))
 bestFitStars = []    
 
 for k in range(len(objOis)):        
@@ -347,8 +350,8 @@ for k in range(len(objOis)):
             chi2Maps[k, i, j] = chi2
             if chi2Maps[k, i, j] < chi2Best:
                 chi2Best = chi2Maps[k, i, j]
-                raBests[k] = ra
-                decBests[k] = dec
+                raBests_global[k] = ra
+                decBests_global[k] = dec
                 kappas[k] = kappa                
                 this_u = (ra*objOis[k].visOi.uCoord + dec*objOis[k].visOi.vCoord)/1e7 
                 phase = 2*np.pi*this_u*1e7/3600.0/360.0/1000.0*2*np.pi 
@@ -356,18 +359,49 @@ for k in range(len(objOis)):
                 phiBest = kappa*phi
     bestFits.append(phiBest)            
 
-# the best values found in chi2 map will be our guesses for gradient descent if requested
-raGuesses = np.copy(raBests)
-decGuesses = np.copy(decBests)
+# combine chi2Maps to get best astrometric solution
+chi2Map = np.sum(chi2Maps, axis = 0)
+ind = np.where(chi2Map == np.min(chi2Map))
+raBest = raValues[ind[0][0]]
+decBest = decValues[ind[1][0]]
     
+# for each map, look for local minimum close to the best solution
+raBests_local = np.zeros(len(objOis))
+decBests_local = np.zeros(len(objOis))
+for k in range(len(objOis)):
+    printinf("Looking for local chi2 minimun for file {}".format(objOis[k].filename))
+    i, j = np.where(raValues == raBest)[0][0], np.where(decValues == decBest)[0][0]    
+    i, j = findLocalMinimum(chi2Maps[k, :, :], i, j, jump_size=5)
+    raBests_local[k] = raValues[i]
+    decBests_local[k] = decValues[j]
+    
+# either the global (default) or local minimum can be used as the best initial guess (our simply best astrometry)
+if USE_LOCAL:
+    printinf("Using local minima instead of global minima for each DIT")
+    raGuesses = np.copy(raBests_local)
+    decGuesses = np.copy(decBests_local)
+else:
+    raGuesses = np.copy(raBests_global)
+    decGuesses = np.copy(decBests_global)
+    
+raBests = np.copy(raGuesses)
+decBests = np.copy(decGuesses)    
+
 # if gradient descent is requested, we use the best chi2 to start a gradient search for true minimum
+formal_errors = []
 if GRADIENT:
     for k in range(len(objOis)):
-        printinf("Performing gradient-descent for file {}".format(oi.filename))        
-        chi2 = lambda astro : compute_chi2(objOis[k], astro[0], astro[1])[0] # only chi2, not kappa
-        opt = scipy.optimize.minimize(chi2, x0=[raBests[k], decBests[k]])
+        printinf("Performing gradient-descent for file {}".format(oi.filename)) 
+        ndof = 2*objOis[k].visOi.ndit*objOis[k].visOi.nchannel*(objOis[k].visOi.nwav - 6) - 1 # number of dof (*2 because these are complex numbers       
+        chi2 = lambda astro : compute_chi2(objOis[k], astro[0], astro[1])[0]/ndof # only chi2, not kappa. 
+        opt = scipy.optimize.minimize(chi2, x0=[raGuesses[k], decGuesses[k]])
         raBests[k] = opt["x"][0]
         decBests[k] = opt["x"][1]
+        # from the Hessian matrix, we can also look for the fiducial error bars
+        ra_err = np.sqrt(opt["hess_inv"][0, 0])
+        dec_err = np.sqrt(opt["hess_inv"][1, 1])        
+        rho = opt["hess_inv"][0, 1]/np.sqrt(ra_err**2*dec_err**2)
+        formal_errors.append([ra_err, dec_err, rho])
 
 # calculate the best fits
 for k in range(len(objOis)):
@@ -385,24 +419,6 @@ for k in range(len(objOis)):
         for c in range(oi.visOi.nchannel):
             bestFits[k][dit, c, :] = np.dot(oi.visOi.p_matrices[dit, c, :, :], bestFits[k][dit, c, :])
     
-# combine chi2Maps to get best astrometric solution
-chi2Map = np.sum(chi2Maps, axis = 0)
-ind = np.where(chi2Map == np.min(chi2Map))
-raBest = raValues[ind[0][0]]
-decBest = decValues[ind[1][0]]
-
-# for each map, look for local minimum close to the best solution
-raBests_local = np.zeros(len(objOis))
-decBests_local = np.zeros(len(objOis))
-for k in range(len(objOis)):
-    printinf("Looking for local chi2 minimun for file {}".format(objOis[k].filename))
-    i, j = np.where(raValues == raBest)[0][0], np.where(decValues == decBest)[0][0]    
-    i, j = findLocalMinimum(chi2Maps[k, :, :], i, j, jump_size=5)
-    raBests_local[k] = raValues[i]
-    decBests_local[k] = decValues[j]
-    if (raBests_local[k] != raBests[k]) or (decBests_local[k] != decBests[k]):
-        printwar("Local minimum for file {} is different from global minimum".format(objOis[k].filename))
-
 
 # look for best opd on each baseline
 bestOpds = np.zeros([len(objOis), objOis[0].visOi.nchannel])
@@ -445,10 +461,10 @@ printinf("RA: {:.2f}+-{:.3f} mas".format(np.mean(raBests), cov[0, 0]**0.5))
 printinf("DEC: {:.2f}+-{:.3f} mas".format(np.mean(decBests), cov[1, 1]**0.5))
 printinf("COV: {:.2f}".format(cov[0, 1]/np.sqrt(cov[0, 0]*cov[1, 1])))
 
-cov_local = np.cov(raBests_local, decBests_local)
-printinf("RA (from combined map): {:.2f}+-{:.3f} mas".format(raBest, cov_local[0, 0]**0.5))
-printinf("DEC (from combined map): {:.2f}+-{:.3f} mas".format(decBest, cov_local[1, 1]**0.5))
-printinf("COV (from combined map): {:.2f} mas".format(cov_local[0, 1]/np.sqrt(cov_local[0, 0]*cov_local[1, 1])))
+#cov_local = np.cov(raBests_local, decBests_local)
+#printinf("RA (from combined map): {:.2f}+-{:.3f} mas".format(raBest, cov_local[0, 0]**0.5))
+#printinf("DEC (from combined map): {:.2f}+-{:.3f} mas".format(decBest, cov_local[1, 1]**0.5))
+#printinf("COV (from combined map): {:.2f} mas".format(cov_local[0, 1]/np.sqrt(cov_local[0, 0]*cov_local[1, 1])))
 
 printinf("Contrast obtained (mean, min, max): {:.2e}, {:.2e}, {:.2e}".format(np.mean(kappas), np.min(kappas), np.max(kappas)))
 
@@ -456,6 +472,8 @@ for k in range(len(PLANET_FILES)):
     preduce = cfg["general"]["reduce_planets"][k]
     preduce[list(preduce.keys())[0]]["astrometric_guess"] = [float(raGuesses[k]), float(decGuesses[k])] # YAML cannot convert numpy types    
     preduce[list(preduce.keys())[0]]["astrometric_solution"] = [float(raBests[k]), float(decBests[k])] # YAML cannot convert numpy types
+    ra_err, dec_err, rho = formal_errors[k]
+    preduce[list(preduce.keys())[0]]["formal_errors"] = [float(ra_err), float(dec_err), float(rho)] # YAML cannot convert numpy types
             
 f = open(CONFIG_FILE, "w")
 if RUAMEL:
@@ -567,32 +585,35 @@ if not(FIGDIR is None):
         plt.tight_layout()
         pdf.savefig()
         plt.close(fig)
-
+        
         fig = plt.figure(figsize = (6, 6))
         ax = fig.add_subplot(111)
-        ax.plot(raGuesses, decGuesses, "oC0", alpha = 0.3)
-        ax.plot(raBests, decBests, "oC0")
-        ax.plot(raBests_local, decBests_local, "oC1")
-        for k in range(len(objOis)):
-            ax.plot([raGuesses[k], raBests[k]], [decGuesses[k], decBests[k]], "C0", linestyle = "dotted", alpha = 0.3)
-            
+        ax.plot(raGuesses, decGuesses, "oC4", label = "Global min per DIT")
+        ax.plot(raBests_local, decBests_local, "+C1", label = "Local min per DIT")
+        ax.plot(raBests, decBests, "+C2", alpha = 0.2)
+        if GRADIENT:
+            for k in range(len(objOis)):
+                # a line to connect the initial guess to the optimized solution
+                if k==0:
+                    l1, l2 = "Gradient descent (GD) per DIT", "GD formal Chi2 error"
+                else:
+                    l1, l2 = None, None
+                ax.plot([raGuesses[k], raBests[k]], [decGuesses[k], decBests[k]], "C2", linestyle = "dotted", label = l1, alpha = 0.3)
+                # the individual error ellipse derived from chi2
+                ra_err, dec_err, rho = formal_errors[k]
+                cov = np.array([[ra_err**2, rho*ra_err*dec_err], [rho*ra_err*dec_err, dec_err**2]])# reconstruct covariance                
+                val, vec = np.linalg.eig(cov) 
+                e1=matplotlib.patches.Ellipse((raBests[k], decBests[k]), 2*val[0]**0.5, 2*val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C2', linewidth=2, alpha = 0.3, linestyle='--', label = l2)       
+                ax.add_patch(e1)
+
+        cov = np.cov(raBests, decBests)
         val, vec = np.linalg.eig(cov)
-        e1=matplotlib.patches.Ellipse((raBests.mean(),decBests.mean()), 2*val[0]**0.5, 2*val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C0', linewidth=2, linestyle='--')
-        e2=matplotlib.patches.Ellipse((np.mean(raBests), np.mean(decBests)), 3*2*val[0]**0.5, 3*2*val[1]**0.5, angle=np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color='C0', linewidth=2)
+        e1=matplotlib.patches.Ellipse((raBests.mean(),decBests.mean()), 2*val[0]**0.5, 2*val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C0', linewidth=2, linestyle='-', label = "Dispersion on GD")
         ax.add_patch(e1)
-        ax.add_patch(e2)    
-        ax.plot([np.mean(raBests)], [np.mean(decBests)], '+C0')
+        ax.plot([np.mean(raBests)], [np.mean(decBests)], '+C0', label = "Mean of GD")
         ax.text(raBests.mean()+val[0]**0.5, decBests.mean()+val[1]**0.5, "RA={:.2f}+-{:.3f}\nDEC={:.2f}+-{:.3f}\nCOV={:.2f}".format(np.mean(raBests), cov[0, 0]**0.5, np.mean(decBests), cov[1, 1]**0.5, cov[0, 1]/np.sqrt(cov[0, 0]*cov[1, 1])), color="C0")
     
-        val, vec = np.linalg.eig(cov_local)
-        e1=matplotlib.patches.Ellipse((raBests_local.mean(), decBests_local.mean()), 2*val[0]**0.5, 2*val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C1', linewidth=2, linestyle='--')
-        e2=matplotlib.patches.Ellipse((np.mean(raBests_local), np.mean(decBests_local)), 3*2*val[0]**0.5, 3*2*val[1]**0.5, angle=np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color='C1', linewidth=2)
-        ax.add_patch(e1)
-        ax.add_patch(e2)    
-        ax.plot([np.mean(raBests_local)], [np.mean(decBests_local)], '+C1')
-        ax.text(raBests_local.mean()-val[0]**0.5, decBests_local.mean()-val[1]**0.5, "RA={:.2f}+-{:.3f}\nDEC={:.2f}+-{:.3f}\nCOV={:.2f}".format(np.mean(raBests_local), cov_local[0, 0]**0.5, np.mean(decBests_local), cov_local[1, 1]**0.5, cov_local[0, 1]/np.sqrt(cov_local[0, 0]*cov_local[1, 1])), color="C1")
-
-        ax.legend(["Best guess", "Gradient descent", "local"])
+        ax.legend()
         ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
         ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
         plt.axis("equal")       

@@ -16,6 +16,7 @@ Args:
   nopd (int, optional): number of points to use when creating the OPD chi2 maps in the astrometry reduction. 50 is the default and is usually fine.
   gofast (bool, optional): if set, average over DITs to accelerate calculations (Usage: --gofast, or gofast=True)
   gradient (bool, optional): if set,  gradient descent will be performed from the position of the minimum in the chi2 map to identify true location of minimum.
+  use_local (bool, optional): if set, the local minima will be used instead of global ones. Useful when multiple close minimums are available
   reflag (str, optional): can be set to True in order to use the REFLAG table to filter bad datapoints
   noinv (bool, optional): if set, avoid inversion of the covariance matrix and replace it with a gaussian elimination approach. 
                           This can sometimes speed up calculations, but it depends. As a general rule, the more DITs you have, 
@@ -141,7 +142,10 @@ if not("gofast" in dargs.keys()):
     dargs['gofast'] = False
 if not("gradient" in dargs.keys()):
     printwar("Value for gradient option not set. Defaut: gradient=True")
-    dargs['gradient'] = True        
+    dargs['gradient'] = True
+if not("use_local" in dargs.keys()):
+    printwar("Value for use_local option not set. Defaut: use_local=False")
+    dargs['use_local'] = False            
 if not("noinv" in dargs.keys()):
     printwar("Value for noinv option not set. Default: noinv=False")
     dargs['noinv'] = False
