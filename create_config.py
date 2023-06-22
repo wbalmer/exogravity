@@ -233,7 +233,7 @@ for k in range(len(datafiles)):
     oi.nwav = oi.visOi.nwav        
     oi.visOi.scaleVisibilities(1.0/oi.dit)
     d = (oi.sObjX**2+oi.sObjY**2 )**0.5
-    msg = "Target is {}; Fiber distance is {:.2f} mas. ".format(oi.target, d)
+    msg = "Target is {}; Fiber position is [{:.2f}, {:.2f}] mas. Distance is {:.2f} mas. ".format(oi.target, oi.sObjX, oi.sObjY, d)    
     if d < 10:
         printinf(msg+"Assuming file to be on star.")
         starOis.append(oi)
