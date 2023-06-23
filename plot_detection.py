@@ -210,7 +210,9 @@ for k in range(len(objOis)):
     oi.visOi.visProj = [[[] for c in range(oi.visOi.nchannel)] for dit in range(oi.visOi.ndit)]
     for dit in range(oi.visOi.ndit):
         for c in range(oi.visOi.nchannel):
-            m = int(oi.visOi.m[dit, c])
+            m = int(oi.visOi.m[dit, c])            
+            bad_indices = np.where(oi.visOi.flag[dit, c, :])
+            oi.visOi.visRef[dit, c, bad_indices] = 0
             oi.visOi.visProj[dit][c] = np.dot(oi.visOi.h_matrices[dit, c, 0:m, :], oi.visOi.visRef[dit, c, :])
 
 # invert covariance matrices
@@ -257,16 +259,13 @@ for k in range(len(cfg["general"]["reduce_planets"])):
 sObjX, sObjY = sObjX/len(cfg["general"]["reduce_planets"]), sObjY/len(cfg["general"]["reduce_planets"])
 
 # degrees of freedom
-if (GO_FAST):
-    ndof = np.sum(np.array([oi.visOi.nchannel*(2*oi.nwav-(STAR_ORDER+1)*2) for oi in objOis])) - 2 - len(objOis) # minus 2 for astrometry, and 1 contrast per file
-else:
-    ndof = np.sum(np.array([oi.visOi.nchannel*oi.visOi.ndit*(2*oi.nwav-(STAR_ORDER+1)*2) for oi in objOis])) - 2 - len(objOis) # minus 2 for astrometry, and 1 contrast per file
+ndof = np.sum(np.array([oi.visOi.nchannel*oi.visOi.ndit*(2*oi.nwav-(STAR_ORDER+1)*2) for oi in objOis])) - 2 - len(objOis) # minus 2 for astrometry, and 1 contrast per file
 
 if "U1" in objOis[0].telnames:
     radius = 30
 else:
     radius = 120
-    
+
 fig = plt.figure()
 ax = fig.add_subplot(111)
 fov = mpl.patches.Circle((sObjX, sObjY), radius, facecolor='none', edgecolor="silver", linewidth=2, linestyle="--")
