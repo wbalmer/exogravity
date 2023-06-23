@@ -249,7 +249,6 @@ n = np.shape(chi2Maps)[1]
 raValues = hdu.header["CRVAL1"] + hdu.header["CDELT1"]*np.array(range(n))
 decValues = hdu.header["CRVAL2"] + hdu.header["CDELT2"]*np.array(range(n))
 
-radius = 30
 # mean fiber position
 sObjX, sObjY = 0, 0
 for k in range(len(cfg["general"]["reduce_planets"])):
@@ -258,15 +257,23 @@ for k in range(len(cfg["general"]["reduce_planets"])):
 sObjX, sObjY = sObjX/len(cfg["general"]["reduce_planets"]), sObjY/len(cfg["general"]["reduce_planets"])
 
 # degrees of freedom
-ndof = np.sum(np.array([oi.visOi.nchannel*(2*oi.nwav-STAR_ORDER*2) for oi in objOis])) - 2 - len(objOis) # minus 2 for astrometry, and 1 contrast per file
+if (GO_FAST):
+    ndof = np.sum(np.array([oi.visOi.nchannel*(2*oi.nwav-(STAR_ORDER+1)*2) for oi in objOis])) - 2 - len(objOis) # minus 2 for astrometry, and 1 contrast per file
+else:
+    ndof = np.sum(np.array([oi.visOi.nchannel*oi.visOi.ndit*(2*oi.nwav-(STAR_ORDER+1)*2) for oi in objOis])) - 2 - len(objOis) # minus 2 for astrometry, and 1 contrast per file
 
+if "U1" in objOis[0].telnames:
+    radius = 30
+else:
+    radius = 120
+    
 fig = plt.figure()
 ax = fig.add_subplot(111)
 fov = mpl.patches.Circle((sObjX, sObjY), radius, facecolor='none', edgecolor="silver", linewidth=2, linestyle="--")
 ax.add_patch(fov)
 im = plt.imshow(-chi2Maps.sum(axis=0)/ndof, origin = "lower", extent=[np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)], clip_path=fov, clip_on=True, vmin = PMIN, vmax = PMAX)
 cbar = plt.colorbar()
-cbar.set_label("Periodogram power")
+cbar.set_label("$\Delta\chi^2_\mathrm{red}$")
 # hide top and right axis lines
 ax.spines["right"].set_visible(False)
 ax.spines["top"].set_visible(False)
@@ -281,8 +288,12 @@ ax.xaxis.label.set_color(color)
 ax.yaxis.label.set_color(color)
 ax.tick_params(colors=color, which='both')
 # select ticks
-xticks = [np.round(sObjX)+k*10 for k in range(-2, 3) if k!=0]
-yticks = [np.round(sObjY)+k*10 for k in range(-2, 3) if k!=0]
+if "UT1" in objOis[0].telnames:
+    xticks = [np.round(sObjX)+k*10 for k in range(-2, 3) if k!=0]
+    yticks = [np.round(sObjY)+k*10 for k in range(-2, 3) if k!=0]
+else:
+    xticks = [np.round(sObjX)+k*40 for k in range(-2, 3) if k!=0]
+    yticks = [np.round(sObjY)+k*40 for k in range(-2, 3) if k!=0]
 plt.xticks(np.round(xticks))    
 plt.yticks(np.round(yticks))
 # add title for axes
