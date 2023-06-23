@@ -256,14 +256,14 @@ if not(FIGDIR is None):
         for k in range(len(objOis)):
             oi = objOis[k]
             fig = plt.figure(figsize=(10, 8))
-            gPlot.modPhasePlot(w, visRefs[k], subtitles = oi.basenames, fig = fig)
+            gPlot.modPhasePlot(w, visRefs[k], subtitles = oi.basenames, fig = fig, xlabel="Wavelength ($\mu\mathrm{m}$)")
             plt.legend(["PhaseRef "+oi.filename.split("/")[-1]])            
             pdf.savefig()
             plt.close(fig)
         for k in range(len(objOis)):
             oi = objOis[k]
             fig = plt.figure(figsize=(10, 8))
-            gPlot.modPhasePlot(w, np.ma.masked_array(oi.visOi.visRef/visRefs[k], oi.visOi.flag).mean(axis = 0), subtitles = oi.basenames, fig = fig)
+            gPlot.modPhasePlot(w, np.ma.masked_array(oi.visOi.visRef/visRefs[k], oi.visOi.flag).mean(axis = 0), subtitles = oi.basenames, fig = fig, xlabel="Wavelength ($\mu\mathrm{m}$)")
             plt.legend([oi.filename.split("/")[-1]+"/Ref"])
             pdf.savefig()
             plt.close(fig)        

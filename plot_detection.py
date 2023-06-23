@@ -258,13 +258,13 @@ for k in range(len(cfg["general"]["reduce_planets"])):
 sObjX, sObjY = sObjX/len(cfg["general"]["reduce_planets"]), sObjY/len(cfg["general"]["reduce_planets"])
 
 # degrees of freedom
-ndof = np.sum(np.array([oi.visOi.nchannel*(oi.nwav-STAR_ORDER*2) for oi in objOis])) - 2 - len(objOis) # minus 2 for astrometry, and 1 contrast per file
+ndof = np.sum(np.array([oi.visOi.nchannel*(2*oi.nwav-STAR_ORDER*2) for oi in objOis])) - 2 - len(objOis) # minus 2 for astrometry, and 1 contrast per file
 
 fig = plt.figure()
 ax = fig.add_subplot(111)
 fov = mpl.patches.Circle((sObjX, sObjY), radius, facecolor='none', edgecolor="silver", linewidth=2, linestyle="--")
 ax.add_patch(fov)
-im = plt.imshow(-0.5*chi2Maps.sum(axis=0)/chi2Refs.sum(axis=0)*ndof, origin = "lower", extent=[np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)], clip_path=fov, clip_on=True, vmin = PMIN, vmax = PMAX)
+im = plt.imshow(-chi2Maps.sum(axis=0)/ndof, origin = "lower", extent=[np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)], clip_path=fov, clip_on=True, vmin = PMIN, vmax = PMAX)
 cbar = plt.colorbar()
 cbar.set_label("Periodogram power")
 # hide top and right axis lines

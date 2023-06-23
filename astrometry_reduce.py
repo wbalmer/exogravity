@@ -127,7 +127,8 @@ if not(FIGDIR is None):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-    from matplotlib.backends.backend_pdf import PdfPages        
+    from matplotlib.backends.backend_pdf import PdfPages
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
     from cleanGravity import gravityPlot as gPlot
     if not(os.path.isdir(FIGDIR)):
         os.makedirs(FIGDIR)
@@ -340,7 +341,7 @@ decBests_global = np.zeros(len(objOis))
 bestFitStars = []    
 
 for k in range(len(objOis)):        
-    printinf("Calculating chi2Map for file {}".format(oi.filename))
+    printinf("Calculating chi2Map for file {}".format(objOis[k].filename))
     chi2Best = np.inf
     for i in range(N_RA):
         for j in range(N_DEC):
@@ -496,53 +497,22 @@ if not(FIGDIR is None):
     hdu.header["CDELT2"] = decValues[1] - decValues[0]
     hdul = fits.HDUList([hdu])
     hdul.writeto(FIGDIR+"/chi2Maps.fits", overwrite = True)
-    
+
     with PdfPages(FIGDIR+"/astrometry_fit_results.pdf") as pdf:
         dRa = raValues[1] - raValues[0]
         dDec = decValues[1] - decValues[0]    
         mapExtent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)]
     
-        fig = plt.figure()
-        plt.imshow(chi2Map.T, origin = "lower", extent = mapExtent)
-        plt.xlabel("$\Delta{}\mathrm{RA}$ (mas)")
-        plt.ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
-        pdf.savefig()
-        plt.close(fig)
-
-        # UV plot
-        fig = plt.figure()
+        fig = plt.figure(figsize=(10, 10))
         ax = fig.add_subplot(111)
-        for k in range(len(objOis)):
-            oi = objOis[k]
-            uCoord = oi.visOi.uCoord
-            vCoord = oi.visOi.vCoord
-            uCoord[np.where(uCoord == 0)] = float("nan")
-            vCoord[np.where(vCoord == 0)] = float("nan")
-            if k == 0:
-                gPlot.uvMap(np.nanmean(uCoord, axis = 0), np.nanmean(vCoord, axis = 0), targetCoord=(raBest, decBest), symmetric = True, ax = ax, colors = ["C"+str(c) for c in range(oi.visOi.nchannel)], lim = 2*r)
-            else:
-                gPlot.uvMap(np.nanmean(uCoord, axis=0), np.nanmean(vCoord, axis = 0), targetCoord=None, symmetric = True, ax = ax, colors = ["C"+str(c) for c in range(oi.visOi.nchannel)], lim=2*r) 
+        im = ax.imshow(chi2Map.T, origin = "lower", extent = mapExtent)
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        plt.colorbar(im, cax=cax)
+        ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
+        ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
         pdf.savefig()
         plt.close(fig)
-
-        for k in range(len(objOis)):
-            oi = objOis[k]
-            fig = plt.figure(figsize=(10, 8))
-            # to plot the average planet in the star frame, we cannot naively average because it would blur the fringes.
-            # we need to convert into the planet frame, calculate the mean here, and then move back to the star frame
-            wavelet = oi.visOi.getWavelet(raBests[k], decBests[k]) # we'll use the conj to move to planet frame
-            waveletMean = np.exp(-1j*2*np.pi/w*np.tile(oi.visOi.getOpd(raBests[k], decBests[k]).mean(axis = 0), [oi.nwav, 1]).T) # to move the mean back to star frame
-            gPlot.reImPlot(w, np.ma.masked_array(np.conj(wavelet)*(oi.visOi.visRef-bestFitStars[k]), oi.visOi.flag).mean(axis = 0)*waveletMean, subtitles = oi.basenames, fig = fig)
-            gPlot.reImPlot(w, np.ma.masked_array(np.conj(wavelet)*bestFits[k], oi.visOi.flag).mean(axis = 0)*waveletMean, fig = fig)
-            plt.legend([oi.filename.split("/")[-1], "Astrometry fit"])
-            pdf.savefig()
-            plt.close(fig)
-            fig = plt.figure(figsize=(10, 8))
-            gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.visRef, oi.visOi.flag).mean(axis = 0), subtitles = oi.basenames, fig = fig)
-            gPlot.reImPlot(w, np.ma.masked_array(bestFitStars[k], oi.visOi.flag).mean(axis = 0), fig = fig)
-            plt.legend([oi.filename.split("/")[-1], "Star fit"])
-            pdf.savefig()
-            plt.close(fig)
 
         fig = plt.figure(figsize = (10, 10))
         n = int(np.ceil(np.sqrt(len(objOis)+1)))
@@ -563,7 +533,7 @@ if not(FIGDIR is None):
             ax = fig.add_subplot(n, n, k+2)
             oi = objOis[k]
             name = oi.filename.split('/')[-1]
-            ax.imshow(chi2Maps[k, :, :].T, origin = "lower", extent = mapExtent)
+            im = ax.imshow(chi2Maps[k, :, :].T, origin = "lower", extent = mapExtent)
             ax.plot(raBests[k], decBests[k], "+C1")
             ax.plot(raBests_local[k], decBests_local[k], "+C2")                 
             ax.plot(raBest, decBest, "+C3")
@@ -576,9 +546,12 @@ if not(FIGDIR is None):
                         if j == np.shape(decOpdBaselines)[2]//2:
                             ax.plot(raValues, decOpdBaselines[k, c, j, :], 'C'+str(c)+'-', linewidth=2)
                         else:
-                            ax.plot(raValues, decOpdBaselines[k, c, j, :], 'C'+str(c)+'--', linewidth=2)                        
-            plt.xlim(mapExtent[0], mapExtent[1])
-            plt.ylim(mapExtent[2], mapExtent[3])
+                            ax.plot(raValues, decOpdBaselines[k, c, j, :], 'C'+str(c)+'--', linewidth=2)
+            divider = make_axes_locatable(ax)
+            cax = divider.append_axes("right", size="5%", pad=0.05)
+            plt.colorbar(im, cax=cax)
+            ax.set_xlim(mapExtent[0], mapExtent[1])
+            ax.set_ylim(mapExtent[2], mapExtent[3])
             ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
             ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
             ax.set_title(name)
@@ -586,40 +559,117 @@ if not(FIGDIR is None):
         pdf.savefig()
         plt.close(fig)
         
-        fig = plt.figure(figsize = (6, 6))
+        fig = plt.figure(figsize = (10, 10))
         ax = fig.add_subplot(111)
-        ax.plot(raGuesses, decGuesses, "oC4", label = "Global min per DIT")
-        ax.plot(raBests_local, decBests_local, "+C1", label = "Local min per DIT")
-        ax.plot(raBests, decBests, "+C2", alpha = 0.2)
+        ax.plot(raGuesses, decGuesses, "oC4", label = "Global min per file")
+        ax.plot(raBests_local, decBests_local, "+C1", label = "Local min per file")
+        ax.plot(raBests, decBests, "+C2", alpha = 0.6)
         if GRADIENT:
             for k in range(len(objOis)):
                 # a line to connect the initial guess to the optimized solution
                 if k==0:
-                    l1, l2 = "Gradient descent (GD) per DIT", "GD formal Chi2 error"
+                    l1, l2 = "Gradient descent per file", "Formal $\chi^2$ error"
                 else:
                     l1, l2 = None, None
-                ax.plot([raGuesses[k], raBests[k]], [decGuesses[k], decBests[k]], "C2", linestyle = "dotted", label = l1, alpha = 0.3)
+                ax.plot([raGuesses[k], raBests[k]], [decGuesses[k], decBests[k]], "C2", linestyle = "dotted", label = l1, alpha = 0.6)
                 # the individual error ellipse derived from chi2
                 ra_err, dec_err, rho = formal_errors[k]
                 cov = np.array([[ra_err**2, rho*ra_err*dec_err], [rho*ra_err*dec_err, dec_err**2]])# reconstruct covariance                
                 val, vec = np.linalg.eig(cov) 
-                e1=matplotlib.patches.Ellipse((raBests[k], decBests[k]), 2*val[0]**0.5, 2*val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C2', linewidth=2, alpha = 0.3, linestyle='--', label = l2)       
+                e1=matplotlib.patches.Ellipse((raBests[k], decBests[k]), 2*val[0]**0.5, 2*val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C2', linewidth=2, alpha = 0.6, linestyle='--', label = l2)       
                 ax.add_patch(e1)
 
-        cov = np.cov(raBests, decBests)
-        val, vec = np.linalg.eig(cov)
-        e1=matplotlib.patches.Ellipse((raBests.mean(),decBests.mean()), 2*val[0]**0.5, 2*val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C0', linewidth=2, linestyle='-', label = "Dispersion on GD")
-        ax.add_patch(e1)
-        ax.plot([np.mean(raBests)], [np.mean(decBests)], '+C0', label = "Mean of GD")
-        ax.text(raBests.mean()+val[0]**0.5, decBests.mean()+val[1]**0.5, "RA={:.2f}+-{:.3f}\nDEC={:.2f}+-{:.3f}\nCOV={:.2f}".format(np.mean(raBests), cov[0, 0]**0.5, np.mean(decBests), cov[1, 1]**0.5, cov[0, 1]/np.sqrt(cov[0, 0]*cov[1, 1])), color="C0")
+        try:
+            cov = np.cov(raBests, decBests)
+            val, vec = np.linalg.eig(cov)
+            e1=matplotlib.patches.Ellipse((raBests.mean(),decBests.mean()), val[0]**0.5, val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C0', linewidth=2, linestyle='-', label = "Dispersion on gradient descent")
+            ax.add_patch(e1)
+            ax.plot([np.mean(raBests)], [np.mean(decBests)], '+C0', label = "Mean of gradient descent")
+            ax.text(raBests.mean()+val[0]**0.5, decBests.mean()+val[1]**0.5, "RA={:.2f}+-{:.3f}\nDEC={:.2f}+-{:.3f}\nCOV={:.2f}".format(np.mean(raBests), cov[0, 0]**0.5, np.mean(decBests), cov[1, 1]**0.5, cov[0, 1]/np.sqrt(cov[0, 0]*cov[1, 1])), color="C0")
+        except np.linalg.LinAlgError:
+            printwar("infs or Nans when calculating covariance on astrometry solutions")
     
-        ax.legend()
+        ax.legend(loc=4)
         ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
         ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
         plt.axis("equal")       
         pdf.savefig()
         plt.close(fig)
-    
+
+        
+        """
+        # UV plot
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        for k in range(len(objOis)):
+            oi = objOis[k]
+            uCoord = oi.visOi.uCoord
+            vCoord = oi.visOi.vCoord
+            uCoord[np.where(uCoord == 0)] = float("nan")
+            vCoord[np.where(vCoord == 0)] = float("nan")
+            if k == 0:
+                gPlot.uvMap(np.nanmean(uCoord, axis = 0), np.nanmean(vCoord, axis = 0), targetCoord=(raBest, decBest), symmetric = True, ax = ax, colors = ["C"+str(c) for c in range(oi.visOi.nchannel)], lim = 2*r)
+            else:
+                gPlot.uvMap(np.nanmean(uCoord, axis=0), np.nanmean(vCoord, axis = 0), targetCoord=None, symmetric = True, ax = ax, colors = ["C"+str(c) for c in range(oi.visOi.nchannel)], lim=2*r) 
+        pdf.savefig()
+        plt.close(fig)
+        """
+        
+        for k in range(len(objOis)):
+            oi = objOis[k]
+
+            if not(GO_FAST):
+                fig = plt.figure(figsize=(10, 8))
+                for dit in range(oi.visOi.ndit):
+                    if dit == 0:
+                        gPlot.reImPlot(w, np.ma.masked_array((oi.visOi.visRef-bestFitStars[k])[dit, :, :], oi.visOi.flag[dit, :, :]), subtitles = oi.basenames, fig = fig, xlabel = "Wavelength ($\mu\mathrm{m}$)", color="C"+str(dit), alpha = 0.5)
+                    else:
+                        gPlot.reImPlot(w, np.ma.masked_array((oi.visOi.visRef-bestFitStars[k])[dit, :, :], oi.visOi.flag[dit, :, :]), fig = fig, color="C"+str(dit), alpha = 0.5)
+                    gPlot.reImPlot(w, np.ma.masked_array(bestFits[k], oi.visOi.flag)[dit, :, :], fig = fig, color="C"+str(dit), linestyle="--", alpha = 0.5)
+                plt.legend([oi.filename.split("/")[-1], "Astrometry fit"])
+                pdf.savefig()
+                plt.close(fig)
+
+                # combine fit and data or fit and res in single array
+                dataFit = np.ma.masked_array(np.zeros([oi.visOi.ndit, 2*oi.visOi.nchannel, oi.visOi.nwav], "complex"), np.zeros([oi.visOi.ndit, 2*oi.visOi.nchannel, oi.visOi.nwav]))
+                dataRes = np.ma.masked_array(np.zeros([oi.visOi.ndit, 2*oi.visOi.nchannel, oi.visOi.nwav], "complex"), np.zeros([oi.visOi.ndit, 2*oi.visOi.nchannel, oi.visOi.nwav]))                
+                for c in range(oi.visOi.nchannel):
+                    dataFit[:, 2*c, :] = np.ma.masked_array(oi.visOi.visRef[:, c, :] - bestFitStars[k][:, c, :], oi.visOi.flag[:, c, :])
+                    dataFit[:, 2*c+1, :] = np.ma.masked_array(bestFits[k][:, c, :], oi.visOi.flag[:, c, :])
+                    dataRes[:, 2*c, :] = np.ma.masked_array(oi.visOi.visRef[:, c, :] - bestFitStars[k][:, c, :], oi.visOi.flag[:, c, :])                    
+                    dataRes[:, 2*c+1, :] = np.ma.masked_array(oi.visOi.visRef[:, c, :] - bestFitStars[k][:, c, :] - bestFits[k][:, c, :], oi.visOi.flag[:, c, :])
+                vmin = np.min([np.min(np.real(dataFit)), np.min(np.imag(dataFit))])
+                vmax = np.max([np.max(np.real(dataFit)), np.max(np.imag(dataFit))])     
+                fig = plt.figure(figsize=(10, 8))
+                subtitles = [item for sublist in [[b+"\nDATA", b+"\nFIT"] for b in oi.basenames] for item in sublist]
+                gPlot.reImWaterfall(dataFit, subtitles = subtitles, fig = fig, vmin = vmin, vmax = vmax)
+                pdf.savefig()
+                plt.close(fig)
+                fig = plt.figure(figsize=(10, 8))
+                subtitles = [item for sublist in [[b+"\nDATA", b+"\nRES"] for b in oi.basenames] for item in sublist]
+                gPlot.reImWaterfall(dataRes, subtitles = subtitles, fig = fig, vmin = vmin, vmax = vmax)
+                pdf.savefig()
+                plt.close(fig)                
+                
+            fig = plt.figure(figsize=(10, 8))
+            # to plot the average planet in the star frame, we cannot naively average because it would blur the fringes.
+            # we need to convert into the planet frame, calculate the mean here, and then move back to the star frame
+            wavelet = oi.visOi.getWavelet(raBests[k], decBests[k]) # we'll use the conj to move to planet frame
+            waveletMean = np.exp(-1j*2*np.pi/w*np.tile(oi.visOi.getOpd(raBests[k], decBests[k]).mean(axis = 0), [oi.nwav, 1]).T) # to move the mean back to star frame
+            gPlot.reImPlot(w, np.ma.masked_array(np.conj(wavelet)*(oi.visOi.visRef-bestFitStars[k]), oi.visOi.flag).mean(axis = 0)*waveletMean, subtitles = oi.basenames, fig = fig, xlabel = "Wavelength ($\mu\mathrm{m}$)")
+            gPlot.reImPlot(w, np.ma.masked_array(np.conj(wavelet)*bestFits[k], oi.visOi.flag).mean(axis = 0)*waveletMean, fig = fig)
+            plt.legend([oi.filename.split("/")[-1], "Astrometry fit"])
+            pdf.savefig()
+            
+            fig = plt.figure(figsize=(10, 8))
+            gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.visRef, oi.visOi.flag).mean(axis = 0), subtitles = oi.basenames, fig = fig, xlabel = "Wavelength ($\mu\mathrm{m}$)")
+            gPlot.reImPlot(w, np.ma.masked_array(bestFitStars[k], oi.visOi.flag).mean(axis = 0), fig = fig)
+            plt.legend([oi.filename.split("/")[-1], "Star fit"])
+            pdf.savefig()
+            plt.close(fig)
+
+
+        
 if SAVE_RESIDUALS:
     np.save(FIGDIR+"/"+"wav.npy", w[0, :])    
     for k in range(len(objOis)):
