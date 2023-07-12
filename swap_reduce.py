@@ -98,7 +98,7 @@ if "figdir" in dargs.keys(): # overwrite
 # LOAD GRAVITY PLOT is savefig requested
 if not(FIGDIR is None):
     import matplotlib
-    matplotlib.use('Agg')
+#    matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     from matplotlib.backends.backend_pdf import PdfPages        
     from cleanGravity import gravityPlot as gPlot
@@ -117,7 +117,7 @@ ois2 = []
 for k in range(0, len(SWAP_FILES)):
     filename = SWAP_FILES[k]
     printinf("Loading file "+filename)    
-    oi = gravity.GravityDualfieldAstrored(filename, extension = cfg["general"]["extension"], corrMet = "drs", corrDisp = "drs")
+    oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = EXTENSION, corrDisp = cfg["general"]["corr_disp"])
     # note: in case go_fast is set, files should not be averaged over DITs at this step, but later
     if oi.swap:
         printinf("Adding OB {} to group 1 (swap=True)".format(filename.split('/')[-1]))
@@ -140,7 +140,7 @@ if len(ois2) == 0:
 if REDUCTION == "astrored":
     for k in range(len(SWAP_FILES)):
         oi = objOis[k]
-        oi.calibrateWithFlux()
+#        oi.calibrateWithFlux()
         # explicitly set ignored dits to NAN
         if not(SWAP_REJECT_DITS[k] is None):
             if len(SWAP_REJECT_DITS[k]) > 0:

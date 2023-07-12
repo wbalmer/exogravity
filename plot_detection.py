@@ -287,7 +287,7 @@ ax.xaxis.label.set_color(color)
 ax.yaxis.label.set_color(color)
 ax.tick_params(colors=color, which='both')
 # select ticks
-if "UT1" in objOis[0].telnames:
+if "U1" in objOis[0].telnames:
     xticks = [np.round(sObjX)+k*10 for k in range(-2, 3) if k!=0]
     yticks = [np.round(sObjY)+k*10 for k in range(-2, 3) if k!=0]
 else:

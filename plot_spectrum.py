@@ -101,13 +101,13 @@ else:
 # plot cov
 if dargs["cov"]:
     plt.figure()
-    plt.imshow(contrastCov.T, origin = "lower", vmin = -2e-13, vmax = 2e-13, extent = [np.min(wav), np.max(wav), np.min(wav), np.max(wav)])
+    plt.imshow(contrastCov.T, origin = "lower", vmin = -2e-11, vmax = 2e-11, extent = [np.min(wav), np.max(wav), np.min(wav), np.max(wav)])
     plt.xlabel("Wavelength ($\mu$m)")
     plt.ylabel("Wavelength ($\mu$m)")    
 
-    for k in range(30):
-        noise = np.random.multivariate_normal(0*contrast, contrastCov)*1.5
-        ax1.plot(wav, (contrast+noise)*1e4, "-C7", alpha = 0.2)
+#    for k in range(30):
+#        noise = np.random.multivariate_normal(0*contrast, contrastCov)*1.5
+#        ax1.plot(wav, (contrast+noise)*1e4, "-C7", alpha = 0.2)
 
 # contrast spectrum
 if dargs['noerr']:
