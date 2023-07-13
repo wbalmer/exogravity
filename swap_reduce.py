@@ -25,6 +25,7 @@ Version:
 
 # standard imports
 import numpy as np
+import scipy.optimize
 import sys, os
 import glob
 import itertools
@@ -73,6 +74,7 @@ RA_LIM = cfg["general"]["ralim_swap"]
 DEC_LIM = cfg["general"]["declim_swap"]
 EXTENSION = cfg["general"]["extension"]
 REDUCTION = cfg["general"]["reduction"]
+GRADIENT = cfg["general"]["gradient"]
 printinf("RA grid set to [{:.2f}, {:.2f}] with {:d} points".format(RA_LIM[0], RA_LIM[1], N_RA))
 printinf("DEC grid set to [{:.2f}, {:.2f}] with {:d} points".format(DEC_LIM[0], DEC_LIM[1], N_DEC))
 
@@ -89,6 +91,8 @@ if "gofast" in dargs.keys():
     GO_FAST = dargs["gofast"].lower()=="true" # bypass value from config file
 else: # default is False
     GO_FAST = False
+if "gradient" in dargs.keys():
+    GRADIENT = dargs["gradient"].lower()=="true" # bypass value from config file
     
 # figdir to know where to put figures
 FIGDIR = cfg["general"]["figdir"]
@@ -171,6 +175,32 @@ w = np.zeros([6, oi.nwav])
 for k in range(6):
     w[k, :] = oi.wav*1e6
 
+# A function to calculate the chi2 for a given oi and ra/dec
+def compute_chi2(ois1, ois2, ra, dec):
+    # reference visibility for group 1        
+    visRefS1 = np.zeros([ois1[0].visOi.nchannel, ois1[0].nwav], "complex")
+    nGoodPointsS1 = np.zeros([ois1[0].visOi.nchannel, ois1[0].nwav]) # to keep track of the number of good points to calc the mean
+    # reference visibility for group 2
+    visRefS2 = np.zeros([ois2[0].visOi.nchannel, ois2[0].nwav], "complex")
+    nGoodPointsS2 = np.zeros([ois2[0].visOi.nchannel, ois2[0].nwav]) # to keep track of the number of good points to calc the mean                
+    for oi in ois1+ois2:
+        this_u = (ra*oi.visOi.uCoord + dec*oi.visOi.vCoord)/1e7
+        phase = 2*np.pi*this_u*1e7/3600.0/360.0/1000.0*2*np.pi
+        phi = np.exp(1j*phase)
+        if oi.swap:
+            visRefS1 = visRefS1+np.nansum(np.conj(phi)*oi.visOi.visRef*(1-oi.visOi.flag), axis = 0)
+            nGoodPointsS1 = nGoodPointsS1+(1-oi.visOi.flag).sum(axis = 0)
+        else:
+            visRefS2 = visRefS2+np.nansum(phi*oi.visOi.visRef*(1-oi.visOi.flag), axis = 0)
+            nGoodPointsS2 = nGoodPointsS2+(1-oi.visOi.flag).sum(axis = 0)
+    visRefS1 = visRefS1/nGoodPointsS1
+    visRefS2 = visRefS2/nGoodPointsS2
+    visRefSwap = np.sqrt(visRefS1*np.conj(visRefS2))
+    chi2 = np.nansum(np.imag(visRefSwap)**2)
+    chi2_baselines = np.nansum(np.imag(visRefSwap)**2, axis = 1)
+    return chi2, chi2_baselines, visRefSwap
+
+
 # prepare chi2Maps
 raValues = np.linspace(RA_LIM[0], RA_LIM[1], N_RA)
 decValues = np.linspace(DEC_LIM[0], DEC_LIM[1], N_DEC)
@@ -180,6 +210,8 @@ chi2Map_baselines = np.zeros([oi.visOi.nchannel, N_RA, N_DEC])
 # to keep track of the best fit
 chi2Best = np.inf
 bestFit = np.zeros([oi.visOi.nchannel, oi.visOi.nwav], "complex")
+raGuess = 0
+decGuess = 0
 raBest = 0
 decBest = 0
 
@@ -189,36 +221,31 @@ for i in range(N_RA):
     printinf("Calculating chi2 map for ra value {} ({}/{})".format(ra, i+1, N_RA))
     for j in range(N_DEC):
         dec = decValues[j]
-        # reference visibility for group 1        
-        visRefS1 = np.zeros([oi.visOi.nchannel, oi.nwav], "complex")
-        nGoodPointsS1 = np.zeros([oi.visOi.nchannel, oi.nwav]) # to keep track of the number of good points to calc the mean
-        # reference visibility for group 2
-        visRefS2 = np.zeros([oi.visOi.nchannel, oi.nwav], "complex")
-        nGoodPointsS2 = np.zeros([oi.visOi.nchannel, oi.nwav]) # to keep track of the number of good points to calc the mean                
-        for oi in ois1+ois2:
-            this_u = (ra*oi.visOi.uCoord + dec*oi.visOi.vCoord)/1e7
-            phase = 2*np.pi*this_u*1e7/3600.0/360.0/1000.0*2*np.pi
-            phi = np.exp(1j*phase)
-            if oi.swap:
-                visRefS1 = visRefS1+np.nansum(np.conj(phi)*oi.visOi.visRef*(1-oi.visOi.flag), axis = 0)
-                nGoodPointsS1 = nGoodPointsS1+(1-oi.visOi.flag).sum(axis = 0)
-            else:
-                visRefS2 = visRefS2+np.nansum(phi*oi.visOi.visRef*(1-oi.visOi.flag), axis = 0)
-                nGoodPointsS2 = nGoodPointsS2+(1-oi.visOi.flag).sum(axis = 0)
-        visRefS1 = visRefS1/nGoodPointsS1
-        visRefS2 = visRefS2/nGoodPointsS2
-        visRefSwap = np.sqrt(visRefS1*np.conj(visRefS2))
-        chi2Map[i, j] = np.nansum(np.imag(visRefSwap)**2)
-        chi2Map_baselines[:, i, j] = np.nansum(np.imag(visRefSwap)**2, axis = 1)
+        chi2, chi2_baselines, visRefSwap = compute_chi2(ois1, ois2, ra, dec)
+        chi2Map[i, j] = chi2
+        chi2Map_baselines[:, i, j] = chi2_baselines
         if chi2Map[i, j] < chi2Best:
             chi2Best = chi2Map[i, j]
-            raBest = ra
-            decBest = dec
+            raGuess = ra
+            decGuess = dec
             bestFit = np.real(visRefSwap)+0j
             visRefSwapBest = visRefSwap
 
-printinf("Best astrometry solution: RA={}, DEC={}".format(raBest, decBest))
-# get the astrometric values and calculate the mean, and add it to the YML file (same value for all swap Ois)
+printinf("Best astrometric solution on map: RA={}, DEC={}".format(raGuess, decGuess))
+
+if GRADIENT:
+    printinf("Performing gradient-descent")
+    chi2norm = compute_chi2(ois1, ois2, 0, 0)[0] # to avoid large values
+    chi2 = lambda astro : compute_chi2(ois1, ois2, astro[0], astro[1])[0]/chi2norm # only chi2, not per baseline
+    opt = scipy.optimize.minimize(chi2, x0=[raGuess, decGuess])
+    raBest = opt["x"][0]
+    decBest = opt["x"][1]
+    printinf("Best astrometric solution after gradient descent: RA={}, DEC={}".format(raBest, decBest))    
+else:
+    raBest = raGuess
+    decBest = decGuess
+    
+# get the astrometric values and add it to the YML file (same value for all swap Ois)
 for key in cfg['swap_ois'].keys():
     cfg["swap_ois"][key]["astrometric_solution"] = [float(raBest), float(decBest)] # YAML cannot convert numpy types
 
@@ -299,6 +326,7 @@ if not(FIGDIR is None):
         oi = objOis[k]
         name = oi.filename.split('/')[-1]
         im = ax.imshow(chi2Map.T, origin = "lower", extent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)])
+        ax.plot(raBest, decBest, "*r")
         ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
         ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
         ax.set_title(name)
