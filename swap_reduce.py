@@ -248,6 +248,7 @@ else:
 # get the astrometric values and add it to the YML file (same value for all swap Ois)
 for key in cfg['swap_ois'].keys():
     cfg["swap_ois"][key]["astrometric_solution"] = [float(raBest), float(decBest)] # YAML cannot convert numpy types
+    cfg["swap_ois"][key]["astrometric_guess"] = [float(raGuess), float(decGuess)] # YAML cannot convert numpy types    
 
 # rewrite the YML
 f = open(CONFIG_FILE, "w")
