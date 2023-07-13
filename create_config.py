@@ -401,11 +401,22 @@ for k in range(len(swapOis)):
 
 general["ftOnStarMeanFlux"] = float(np.mean(np.array([star_files[key]["ftMeanFlux"] for key in star_files.keys()])))
 general["ftOnPlanetMeanFlux"] = float(np.mean(np.array([planet_files[key]["ftMeanFlux"] for key in planet_files.keys()])))
-    
+
+# dictionnary for keywords used when calibrating the spectrum
+calib_dict = {"star_name": None,
+              "magnitudes": {"2MASS/2MASS.Ks": [0, 0]},
+              "parallax": [0, 0],
+              "model": "bt-nextgen",
+              "bounds": {"teff": [0, 0],
+                         "logg": [0, 0],
+                         "feh": [0., 0.],
+                         "radius": [1., 100]}
+              }
+
 cfg = {"general": general,
        "planet_ois": planet_files,
        "star_ois": star_files,
-       "swap_ois": swap_files 
+       "spectral_calibration": calib_dict 
    }
 
 f = open(dargs["output"], "w")

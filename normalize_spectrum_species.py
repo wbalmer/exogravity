@@ -1,18 +1,17 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Normalize a GRAVITY spectrum to a given K-band magnitude
+"""Normalize a GRAVITY spectrum using a model from species
 
 This script is part of the exoGravity data reduction package.
-The normalize_spectrum_spectrum is used to normalize a spectrum to a given K band magnitude (ESO filter)
+The normalize_spectrum_species is used to normalize a spectrum using a model spectrum from species
 using a given stellar model.
 
 Args:
-  file: the path the to fits file containing the contrast spectrum
-  file_model: the path to the stellar model to use
-  mag_k: the K band magnitude of the star (ESO filer)
+  config_file: the path the yml configuraiton file which should contain all calibration parameters
+  file: the path to the fits file containing the spectrum to normalize
 
 Example:
-  python normalize_spectrum file=full/path/to/spectrum.fits file_mode=modelspectrum.dat mag_k=3.86
+  python normalize_spectrum_species file=full/path/to/spectrum.fits config_file=fill/path/to/config.yml
 
 Authors:
   M. Nowak, and the exoGravity team.

@@ -8,12 +8,11 @@ To use this script, you need to call it with a configuration file, and an output
 
 Args:
   config_file (str): the path the to YAML configuration file.
-  outputdit (str): /path/to/outputdir in which the script will create a "contrast.txt" file and a "covariance.txt" file, to contain the result
   gofast (bool, optional): if set, average over DITs to accelerate calculations (Usage: --gofast, or gofast=True, or goFast=False). This will bypass
                            the value contained in the YAML file.
 
 Example:
-  python astrometry_reduce config_file=full/path/to/yourconfig.yml outputdir=/path/to/outputdir
+  python spectum_reduce config_file=full/path/to/yourconfig.yml 
 
 Authors:
   M. Nowak, and the exoGravity team.
@@ -56,18 +55,12 @@ if "help" in dargs.keys():
     stop()
 
 # arg should be the path to the config yal file    
-REQUIRED_ARGS = ["config_file", "outputdir"]
+REQUIRED_ARGS = ["config_file"]
 for req in REQUIRED_ARGS:
     if not(req in dargs.keys()):
         printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
         stop()
 
-OUTPUT_DIR = dargs["outputdir"]
-# Test if output dir exists
-if not(os.path.isdir(OUTPUT_DIR)):
-    printwar("Creating directory {}.".format(OUTPUT_DIR))    
-    os.mkdir(OUTPUT_DIR)
-    
 CONFIG_FILE = dargs["config_file"]
 if not(os.path.isfile(CONFIG_FILE)):
     raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
@@ -112,9 +105,12 @@ if "reflag" in dargs.keys():
     REFLAG = dargs["reflag"].lower()=="true" # bypass value from config file
 if "noinv" in dargs.keys():
     NO_INV = dargs["noinv"].lower()=="true" # bypass value from config file    
-if "figdir" in dargs.keys():
-    FIGDIR = dargs["figdir"] # bypass value from config file    
 
+# FIGDIR is now a compulsory keyword. Throw an error if it is not in the config file
+if FIGDIR is None:
+    printerr("figdir not given in the config file. figdir is now required")
+    stop()
+    
 # LOAD GRAVITY PLOT is savefig requested
 if not(FIGDIR is None):
     import matplotlib as mpl
@@ -469,7 +465,19 @@ Cerr = np.dot(B, np.dot(0.5*np.real(covY2+pcovY2), B.T))
 
 # save raw contrast spectrum and diagonal error terms in a file
 printinf("Writting spectrum in FITS file")
-saveFitsSpectrum(OUTPUT_DIR+"/"+SPECTRUM_FILENAME, wav, C, Cerr, C, Cerr)
+# get header info
+date_obs = objOis[0].datetime + np.mean(np.array([oi.datetime-objOis[0].datetime for oi in objOis]))
+mjd = np.mean(np.array([oi.mjd for oi in objOis]))
+resolution_mode = fits.open(objOis[0].filename)[0].header["HIERARCH ESO INS SPEC RES"].lstrip().rstrip().lower()
+if resolution_mode == "low":
+    resolution = 50
+elif resolution_mode == "medium":
+    resolution = 500
+elif resolution_mode == "high":
+    resolution = 4000
+else:
+    resolution = None
+saveFitsSpectrum(FIGDIR+"/"+SPECTRUM_FILENAME, wav, C*0, Cerr*0, C, Cerr, resolution=resolution, mjd = mjd, date_obs = date_obs.isoformat(), name=objOis[0].sObjName)
 
 # now we want to recontruct the planet visibilities and the best fit obtained, in the original
 # pipeline reference frame. The idea is that we want to compare the residuals to the pipeline

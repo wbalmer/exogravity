@@ -100,15 +100,24 @@ else:
     
 # plot cov
 if dargs["cov"]:
-    plt.figure()
-    plt.imshow(contrastCov.T, origin = "lower", vmin = -2e-13, vmax = 2e-13, extent = [np.min(wav), np.max(wav), np.min(wav), np.max(wav)])
-    plt.xlabel("Wavelength ($\mu$m)")
-    plt.ylabel("Wavelength ($\mu$m)")    
+    fig = plt.figure()
+    ax = fig.add_subplot(121)
+    ax.imshow(1e13*contrastCov.T, origin = "lower", vmin = -2, vmax = 2, extent = [np.min(wav), np.max(wav), np.min(wav), np.max(wav)])
+    ax.set_xlabel("Wavelength ($\mu$m)")
+    ax.set_ylabel("Wavelength ($\mu$m)")
+    ax.set_title("Contrast ($\\times{}10^{-13}$)")
+    ax = fig.add_subplot(122)
+    ax.imshow(1e35*fluxCov.T, origin = "lower", vmin = -2, vmax = 2, extent = [np.min(wav), np.max(wav), np.min(wav), np.max(wav)])
+    ax.set_xlabel("Wavelength ($\mu$m)")
+    ax.set_ylabel("Wavelength ($\mu$m)")        
+    ax.set_title("Flux ($\\times{}10^{-35}$)")
 
-    for k in range(30):
-        noise = np.random.multivariate_normal(0*contrast, contrastCov)*1.5
+    for k in range(50):
+        noise = np.random.multivariate_normal(0*contrast, contrastCov)
         ax1.plot(wav, (contrast+noise)*1e4, "-C7", alpha = 0.2)
-
+        noise = np.random.multivariate_normal(0*flux, fluxCov)
+        ax2.plot(wav, (flux+noise)*1e15, "-C7", alpha = 0.2)
+                   
 # contrast spectrum
 if dargs['noerr']:
     ax1.plot(wav, contrast*1e4, dargs['color'], marker=".")
