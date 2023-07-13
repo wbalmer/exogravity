@@ -40,7 +40,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 import species
 from PyPDF2 import PdfFileReader, PdfFileWriter
 
-whereami = os.path.realpath(__file__).replace("normalize_spectrum.py", "")
+whereami = os.path.realpath(__file__).replace("normalize_spectrum_species.py", "")
 
 # load aguments into a dictionnary
 dargs = args_to_dict(sys.argv)
@@ -101,6 +101,7 @@ database = species.Database()
 database.delete_data("objects")
 database.delete_data("results/fit")
 database.delete_data("models")
+database.delete_data("filters")
 # add object
 database.add_object(object_name=calib_dict["star_name"], parallax=calib_dict["parallax"], app_mag=calib_dict["magnitudes"], spectrum=None)
 
