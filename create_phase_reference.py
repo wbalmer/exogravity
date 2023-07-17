@@ -125,9 +125,9 @@ for filename in STAR_FILES:
     printinf("Loading file "+filename)
     if (PHASEREF_MODE == "DF_SWAP"):
         if REDUCTION == "astrored":        
-            oi = gravity.GravityDualfieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = EXTENSION, corrDisp = cfg["general"]["corr_disp"])
+            oi = gravity.GravitySinglefieldAstrored(filename, corrMet = cfg["general"]["corr_met"], extension = EXTENSION, corrDisp = cfg["general"]["corr_disp"])
         elif REDUCTION == "dualscivis":
-            oi = gravity.GravityDualfieldScivis(filename, extension = EXTENSION)
+            oi = gravity.GravitySinglefieldScivis(filename, extension = EXTENSION)
         else:
             printerr("Unknonwn reduction type '{}'.".format(REDUCTION))            
     else:
