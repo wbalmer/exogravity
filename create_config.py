@@ -13,8 +13,10 @@ Args:
   ralim (range, optional): specify the RA range (in mas) over which to search for the astrometry: Example: ralim=[142,146]
   declim (range, optional): same as ralim, for declination
   nra, ndec (int, optional): number of points over the RA and DEC range (the more points, the longer the calculation)
-  nopd (int, optional): number of points to use when creating the OPD chi2 maps in the astrometry reduction. 100 is the default and is usually fine.
+  nopd (int, optional): number of points to use when creating the OPD chi2 maps in the astrometry reduction. 50 is the default and is usually fine.
   gofast (bool, optional): if set, average over DITs to accelerate calculations (Usage: --gofast, or gofast=True)
+  gradient (bool, optional): if set,  gradient descent will be performed from the position of the minimum in the chi2 map to identify true location of minimum.
+  use_local (bool, optional): if set, the local minima will be used instead of global ones. Useful when multiple close minimums are available
   reflag (str, optional): can be set to True in order to use the REFLAG table to filter bad datapoints
   noinv (bool, optional): if set, avoid inversion of the covariance matrix and replace it with a gaussian elimination approach. 
                           This can sometimes speed up calculations, but it depends. As a general rule, the more DITs you have, 
@@ -107,17 +109,17 @@ if not("ralim_swap" in dargs.keys()) or not("declim_swap" in dargs.keys()):
 
 if not("nra" in dargs.keys()):
     printwar("nra not provided in args. Default: nra=100")
-    dargs["nra"] = 100
+    dargs["nra"] = 50
 else:
     dargs["nra"] = int(dargs["nra"])
 if not("ndec" in dargs.keys()):
     printwar("ndec not provided in args. Default: ndec=100")
-    dargs["ndec"] = 100
+    dargs["ndec"] = 50
 else:
     dargs["ndec"] = int(dargs["ndec"])    
 if not("nopd" in dargs.keys()):
     printwar("nopd not provided in args. Default: to nopd=100")
-    dargs["nopd"] = 100
+    dargs["nopd"] = 50
 else:
     dargs["nopd"] = int(dargs["nopd"])    
 if not("nra_swap" in dargs.keys()):
@@ -137,7 +139,13 @@ else:
     dargs["star_order"] = int(dargs["star_order"])    
 if not("gofast" in dargs.keys()):
     printwar("Value for gofast option not set. Defaut: gofast=False")
-    dargs['gofast'] = False    
+    dargs['gofast'] = False
+if not("gradient" in dargs.keys()):
+    printwar("Value for gradient option not set. Defaut: gradient=True")
+    dargs['gradient'] = True
+if not("use_local" in dargs.keys()):
+    printwar("Value for use_local option not set. Defaut: use_local=False")
+    dargs['use_local'] = False            
 if not("noinv" in dargs.keys()):
     printwar("Value for noinv option not set. Default: noinv=False")
     dargs['noinv'] = False
@@ -225,7 +233,7 @@ for k in range(len(datafiles)):
     oi.nwav = oi.visOi.nwav        
     oi.visOi.scaleVisibilities(1.0/oi.dit)
     d = (oi.sObjX**2+oi.sObjY**2 )**0.5
-    msg = "Target is {}; Fiber distance is {:.2f} mas. ".format(oi.target, d)
+    msg = "Target is {}; Fiber position is [{:.2f}, {:.2f}] mas. Distance is {:.2f} mas. ".format(oi.target, oi.sObjX, oi.sObjY, d)    
     if d < 10:
         printinf(msg+"Assuming file to be on star.")
         starOis.append(oi)
@@ -312,6 +320,8 @@ general = {"datadir": dargs["datadir"],
            "extension": int(dargs["extension"]),
            "reduction": dargs["reduction"],                      
            "gofast": dargs['gofast'],
+           "gradient": dargs['gradient'],
+           "use_local": dargs['use_local'],                      
            "noinv": dargs['noinv'],
            "reflag": dargs['reflag'],           
            "contrast_file": dargs['contrast_file'],

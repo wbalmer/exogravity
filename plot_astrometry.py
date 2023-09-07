@@ -76,6 +76,9 @@ else:
     cfg = yaml.safe_load(open(CONFIG_FILE, "r"))
 
 # extract the astrometric solutions
+
+# DEPRECATED SINCE USING GRADIENT DESCENT IN ASTROMETRY_REDUCE
+"""
 CHI2MAP_FOUND = False
 if not(cfg["general"]["figdir"] is None):
     try:
@@ -123,7 +126,17 @@ else:
     except:
         printinf("Please run the script 'astrometryReduce' first.")    
         printerr("Could not extract the astrometry from the config file {}".format(CONFIG_FILE))    
-    
+"""
+
+try:
+    ra = [preduce[list(preduce.keys())[0]]["astrometric_solution"][0] for preduce in cfg["general"]["reduce_planets"]]
+    dec = [preduce[list(preduce.keys())[0]]["astrometric_solution"][1] for preduce in cfg["general"]["reduce_planets"]]
+    printinf("Astrometry extracted from config file {}".format(CONFIG_FILE))
+except:
+        printinf("Please run the script 'astrometryReduce' first.")    
+        printerr("Could not extract the astrometry from the config file {}".format(CONFIG_FILE))    
+
+
 nfiles = len(cfg['planet_ois'])
         
 ra_best = np.mean(ra)
@@ -152,13 +165,13 @@ import matplotlib.pyplot as plt
 fig = plt.figure(figsize=(6, 6))
 ax = fig.add_subplot(111)
 
-ax.plot(ra, dec, ".C0")    
-ax.plot([ra_best], [dec_best], '+k')
+ax.plot(ra, dec, "oC0")    
+ax.plot([ra_best], [dec_best], 'ok')
 
 val, vec = np.linalg.eig(cov_mat)
 
-e1Large = matplotlib.patches.Ellipse((ra_best, dec_best), nfiles**0.5*2*val[0]**0.5, nfiles**0.5*2*val[1]**0.5, angle = np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color = 'gray', linewidth=2, linestyle = '--')
-e2Large = matplotlib.patches.Ellipse((ra_best, dec_best), nfiles**0.5*3*2*val[0]**0.5, nfiles**0.5*3*2*val[1]**0.5, angle = np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color = 'gray', linewidth=2)
+e1Large = matplotlib.patches.Ellipse((ra_best, dec_best), nfiles**0.5*2*val[0]**0.5, nfiles**0.5*2*val[1]**0.5, angle = np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color = 'gray', alpha=0.3, linewidth=2, linestyle='--')
+e2Large = matplotlib.patches.Ellipse((ra_best, dec_best), nfiles**0.5*3*2*val[0]**0.5, nfiles**0.5*3*2*val[1]**0.5, angle = np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color='gray', alpha=0.3, linewidth=2)
 
 e1 = matplotlib.patches.Ellipse((ra_best, dec_best), 2*val[0]**0.5, 2*val[1]**0.5, angle = np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color = 'k', linewidth=2, linestyle = '--')
 e2 = matplotlib.patches.Ellipse((ra_best, dec_best), 3*2*val[0]**0.5, 3*2*val[1]**0.5, angle = np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color = 'k', linewidth=2)
@@ -172,8 +185,14 @@ ax.add_patch(e2)
 # now add individual errors:
 if dargs["formal_errors"]:    
     for k in range(len(ra)):
-        e = matplotlib.patches.Ellipse((ra[k], dec[k]), 2*ra_var[k]**0.5, 2*dec_var[k]**0.5, angle = np.arctan2(rho[k]*ra_var[k]**0.5*dec_var[k]**0.5, -dec_var[k])/np.pi*180.0, fill=False, color = 'C0', linewidth=1, linestyle = '-')    
-        ax.add_patch(e)
+        pred = cfg["general"]["reduce_planets"][k]
+        pred = pred[list(pred.keys())[0]]
+        # the individual error ellipses derived from chi2
+        ra_err, dec_err, rho = pred["formal_errors"]
+        cov = np.array([[ra_err**2, rho*ra_err*dec_err], [rho*ra_err*dec_err, dec_err**2]])# reconstruct covariance                
+        val, vec = np.linalg.eig(cov) 
+        e1=matplotlib.patches.Ellipse((ra[k], dec[k]), 2*val[0]**0.5, 2*val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C0', linewidth=2, alpha = 0.5, linestyle='--')
+        ax.add_patch(e1)
     
 if dargs['labels']:
     for k in range(nfiles):
