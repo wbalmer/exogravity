@@ -10,8 +10,9 @@ Args:
   config_file (str): the path the to YAML configuration file.
   gofast (bool, optional): if set, average over DITs to accelerate calculations (Usage: --gofast, or gofast=True, or goFast=False). This will bypass
                            the value contained in the YAML file.
-  noinv (bool, optional): if set, avoid inversion of the covariance matrix and replace it with a gaussian elimination approach. 
-                          Bypass the value in the YAML file. (Usage: --noinv, or noinv=True, or noinv=False)
+  ralim (range): specify the RA range (in mas) over which to search for the astrometry: Example: ralim=[142,146]
+  declim (range): same as ralim, for declination
+  nra, ndec (int, optional): number of points over the RA and DEC range (the more points, the longer the calculation). Default is 100.
   save_residuals (bool, optional): if set, save the residuals in npy files. figdir must also be provided for this option to be used
 
 Example:
@@ -111,12 +112,12 @@ if "save_residuals" in dargs.keys():
     SAVE_RESIDUALS = True # bypass value from config file
 if "ralim" in dargs.keys():
     RA_LIM = [float(dummy) for dummy in dargs["ralim"].replace("[", "").replace("]", "").split(",")]
-if "n_ra" in dargs.keys():
-    N_RA = int(dargs["n_ra"])
+if "nra" in dargs.keys():
+    N_RA = int(dargs["nra"])
 if "declim" in dargs.keys():
     DEC_LIM = [float(dummy) for dummy in dargs["declim"].replace("[", "").replace("]", "").split(",")]    
-if "n_dec" in dargs.keys():
-    N_DEC = int(dargs["n_dec"])
+if "ndec" in dargs.keys():
+    N_DEC = int(dargs["ndec"])
 if "gradient" in dargs.keys():
     GRADIENT = dargs["gradient"].lower()=="true" # bypass value from config file
 if "use_local" in dargs.keys():
