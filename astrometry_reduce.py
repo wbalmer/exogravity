@@ -26,19 +26,16 @@ Version:
 """
 
 # BASIC IMPORTS
+import os, sys
 import numpy as np
-import scipy.sparse, scipy.sparse.linalg
-from scipy.linalg import lapack
 import astropy.io.fits as fits
 # cleanGravity IMPORTS
 import cleanGravity as gravity
 from cleanGravity import complexstats as cs
 from cleanGravity.utils import loadFitsSpectrum, saveFitsSpectrum
-from utils import * # utils from this exooGravity package
-from common import *
-# other random stuffs
-import glob
-import itertools
+# loacl package functions
+from exogravity.utils import * # utils from this exooGravity package
+from exogravity.common import *
 # ruamel to read config yml file
 try:
     import ruamel.yaml
@@ -46,30 +43,77 @@ try:
 except: # if ruamel not available, switch back to pyyaml, which does not handle comments properly
     import yaml
     RUAMEL = False
-import sys, os
+# other random stuffs
+import itertools
+import scipy.sparse, scipy.sparse.linalg
+from scipy.linalg import lapack
 
-# load aguments into a dictionnary
-dargs = args_to_dict(sys.argv)
-
-if "help" in dargs.keys():
-    print(__doc__)
-    stop()
-
-# arg should be the path to the config yal file    
+# arg should be the path to the config yml file    
 REQUIRED_ARGS = ["config_file"]
-for req in REQUIRED_ARGS:
-    if not(req in dargs.keys()):
-        printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
 
-CONFIG_FILE = dargs["config_file"]
-if not(os.path.isfile(CONFIG_FILE)):
-    raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
+# IF BEING RUN AS A SCRIPT, LOAD COMMAND LINE ARGUMENTS
+if __name__ == "__main__":    
+    # load arguments into a dictionnary
+    dargs = args_to_dict(sys.argv)
+
+    # if user asks for help, print the doc and exit
+    if "help" in dargs.keys():
+        print(__doc__)
+        sys.exit()
+
+    # make sure the required arguments for this script are all here
+    for req in REQUIRED_ARGS:
+        if not(req in dargs.keys()):
+            printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
+
+    CONFIG_FILE = dargs["config_file"]
+    if not(os.path.isfile(CONFIG_FILE)):
+        raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
     
-# READ THE CONFIGURATION FILE
-if RUAMEL:
-    cfg = ruamel.yaml.load(open(CONFIG_FILE, "r"), Loader=ruamel.yaml.RoundTripLoader)
-else:
-    cfg = yaml.safe_load(open(CONFIG_FILE, "r"))
+    # READ THE CONFIGURATION FILE
+    if RUAMEL:
+        cfg = ruamel.yaml.load(open(CONFIG_FILE, "r"), Loader=ruamel.yaml.RoundTripLoader)
+    else:
+        cfg = yaml.safe_load(open(CONFIG_FILE, "r"))
+
+    # OVERWRITE SOME OF THE CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
+    if "figdir" in dargs.keys():
+        FIGDIR = dargs["figdir"] # bypass value from config file
+
+    # OVERWRITE SOME CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
+    if "gofast" in dargs.keys():
+        cfg["general"]["gofast"] = (dargs["gofast"].lower()=="true") # bypass value from config file
+    if "noinv" in dargs.keys():
+        cfg["general"]["noinv"] = dargs["noinv"] # bypass value from config file
+    if "figdir" in dargs.keys():
+        cfg["general"]["figdir"] = dargs["figdir"] # bypass value from config file
+    if "save_residuals" in dargs.keys():
+        cfg["general"]["save_residuals"] = True # bypass value from config file
+    if "ralim" in dargs.keys():
+        cfg["general"]["ralim"] = [float(dummy) for dummy in dargs["ralim"].replace("[", "").replace("]", "").split(",")]
+    if "nra" in dargs.keys():
+        cfg["general"]["n_ra"] = int(dargs["nra"])
+    if "declim" in dargs.keys():
+        cfg["general"]["declim"] = [float(dummy) for dummy in dargs["declim"].replace("[", "").replace("]", "").split(",")]    
+    if "ndec" in dargs.keys():
+        cfg["general"]["n_dec"] = int(dargs["ndec"])
+    if "gradient" in dargs.keys():
+        cfg["general"]["gradient"] = (dargs["gradient"].lower()=="true") # bypass value from config file
+    if "use_local" in dargs.keys():
+        cfg["general"]["use_local"] = (dargs["use_local"].lower()=="true") # bypass value from config file    
+    if not("save_residuals") in dargs.keys():
+        cfg["general"]['save_residuals'] = False
+
+# IF THIS FILE IS RUNNING AS A MODULE, WE WILL TAKE CONFIGURATION FILE FROM THE PARENT MODULE
+if __name__ != "__main__":
+    import exogravity
+    cfg = exogravity.cfg
+
+    
+#######################
+# START OF THE SCRIPT #
+#######################
+
 DATA_DIR = cfg["general"]["datadir"]
 PHASEREF_MODE = cfg["general"]["phaseref_mode"]
 CONTRAST_FILE = cfg["general"]["contrast_file"]
@@ -79,15 +123,6 @@ GRADIENT = cfg["general"]["gradient"]
 USE_LOCAL = cfg["general"]["use_local"]
 FIGDIR = cfg["general"]["figdir"]
 SAVE_RESIDUALS = cfg["general"]["save_residuals"]
-PLANET_FILES = [DATA_DIR+cfg["planet_ois"][preduce[list(preduce.keys())[0]]["planet_oi"]]["filename"] for preduce in cfg["general"]["reduce_planets"]]
-PLANET_REJECT_DITS = [preduce[list(preduce.keys())[0]]["reject_dits"] for preduce in cfg["general"]["reduce_planets"]]
-PLANET_REJECT_BASELINES = [preduce[list(preduce.keys())[0]]["reject_baselines"] for preduce in cfg["general"]["reduce_planets"]]
-if not("swap_ois" in cfg.keys()):
-    SWAP_FILES = []
-elif cfg["swap_ois"] is None:
-    SWAP_FILES = []
-else:
-    SWAP_FILES = [DATA_DIR+cfg["swap_ois"][k]["filename"] for k in cfg["swap_ois"].keys()]
 STAR_ORDER = cfg["general"]["star_order"]
 N_OPD = cfg["general"]["n_opd"]
 N_RA = cfg["general"]["n_ra"]
@@ -101,28 +136,16 @@ REDUCTION = cfg["general"]["reduction"]
 PHASEREF_ARCLENGTH_THRESHOLD = cfg["general"]["phaseref_arclength_threshold"]
 FT_FLUX_THRESHOLD = cfg["general"]["ft_flux_threshold"]
 
-# OVERWRITE SOME CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
-if "gofast" in dargs.keys():
-    GO_FAST = dargs["gofast"].lower()=="true" # bypass value from config file
-if "noinv" in dargs.keys():
-    NO_INV = dargs["noinv"] # bypass value from config file
-if "figdir" in dargs.keys():
-    FIGDIR = dargs["figdir"] # bypass value from config file
-if "save_residuals" in dargs.keys():
-    SAVE_RESIDUALS = True # bypass value from config file
-if "ralim" in dargs.keys():
-    RA_LIM = [float(dummy) for dummy in dargs["ralim"].replace("[", "").replace("]", "").split(",")]
-if "nra" in dargs.keys():
-    N_RA = int(dargs["nra"])
-if "declim" in dargs.keys():
-    DEC_LIM = [float(dummy) for dummy in dargs["declim"].replace("[", "").replace("]", "").split(",")]    
-if "ndec" in dargs.keys():
-    N_DEC = int(dargs["ndec"])
-if "gradient" in dargs.keys():
-    GRADIENT = dargs["gradient"].lower()=="true" # bypass value from config file
-if "use_local" in dargs.keys():
-    USE_LOCAL = dargs["use_local"].lower()=="true" # bypass value from config file    
-    
+PLANET_FILES = [DATA_DIR+cfg["planet_ois"][preduce[list(preduce.keys())[0]]["planet_oi"]]["filename"] for preduce in cfg["general"]["reduce_planets"]]
+PLANET_REJECT_DITS = [preduce[list(preduce.keys())[0]]["reject_dits"] for preduce in cfg["general"]["reduce_planets"]]
+PLANET_REJECT_BASELINES = [preduce[list(preduce.keys())[0]]["reject_baselines"] for preduce in cfg["general"]["reduce_planets"]]
+if not("swap_ois" in cfg.keys()):
+    SWAP_FILES = []
+elif cfg["swap_ois"] is None:
+    SWAP_FILES = []
+else:
+    SWAP_FILES = [DATA_DIR+cfg["swap_ois"][k]["filename"] for k in cfg["swap_ois"].keys()]
+
 # LOAD GRAVITY PLOT is savefig requested
 if not(FIGDIR is None):
     import matplotlib
@@ -336,10 +359,13 @@ decValues = np.linspace(DEC_LIM[0], DEC_LIM[1], N_DEC)
 chi2Maps = np.zeros([len(objOis), N_RA, N_DEC])
 # to store best fits values on each file
 bestFits = []
+bestFitStars = []
+if GRADIENT:
+    bestFits_gradient = []
+    bestFitStars_gradient = []    
 kappas = np.zeros(len(objOis))
 raBests_global = np.zeros(len(objOis))
 decBests_global = np.zeros(len(objOis))
-bestFitStars = []    
 
 for k in range(len(objOis)):        
     printinf("Calculating chi2Map for file {}".format(objOis[k].filename))
@@ -393,7 +419,7 @@ decBests = np.copy(decGuesses)
 formal_errors = []
 if GRADIENT:
     for k in range(len(objOis)):
-        printinf("Performing gradient-descent for file {}".format(oi.filename)) 
+        printinf("Performing gradient-descent for file {}".format(objOis[k].filename)) 
         ndof = 2*objOis[k].visOi.ndit*objOis[k].visOi.nchannel*(objOis[k].visOi.nwav - 6) - 1 # number of dof (*2 because these are complex numbers       
         chi2 = lambda astro : compute_chi2(objOis[k], astro[0], astro[1])[0]/ndof # only chi2, not kappa. 
         opt = scipy.optimize.minimize(chi2, x0=[raGuesses[k], decGuesses[k]])
@@ -404,15 +430,29 @@ if GRADIENT:
         dec_err = np.sqrt(opt["hess_inv"][1, 1])        
         rho = opt["hess_inv"][0, 1]/np.sqrt(ra_err**2*dec_err**2)
         formal_errors.append([ra_err, dec_err, rho])
-
+        # recalculate the best fits corresponding to the gradient_descent
+        ra, dec = opt["x"][0], opt["x"][1]
+        chi2, kappa = compute_chi2(objOis[k], ra, dec)
+        this_u = (ra*objOis[k].visOi.uCoord + dec*objOis[k].visOi.vCoord)/1e7 
+        phase = 2*np.pi*this_u*1e7/3600.0/360.0/1000.0*2*np.pi 
+        phi = np.exp(-1j*phase)*np.abs(visRefs[k])                            
+        phiBest = kappa*phi
+        bestFits_gradient.append(phiBest)
+        
 # calculate the best fits
 for k in range(len(objOis)):
     oi = objOis[k]
     bestFitStar = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex")
+    if GRADIENT:
+        bestFitStar_gradient = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex")            
     for dit in range(oi.visOi.ndit):
         for c in range(oi.visOi.nchannel):
             bestFitStar[dit, c, :] = oi.visOi.visRef[dit, c, :] - np.dot(oi.visOi.p_matrices[dit, c, :, :], oi.visOi.visRef[dit, c, :])
+            if GRADIENT:
+                bestFitStar_gradient[dit, c, :] = oi.visOi.visRef[dit, c, :] - np.dot(oi.visOi.p_matrices[dit, c, :, :], oi.visOi.visRef[dit, c, :])
     bestFitStars.append(bestFitStar)
+    if GRADIENT:
+        bestFitStars_gradient.append(bestFitStar_gradient)
 
 # also project the best fit in order to be able to compare it with data
 for k in range(len(objOis)):
@@ -420,8 +460,9 @@ for k in range(len(objOis)):
     for dit in range(oi.visOi.ndit):
         for c in range(oi.visOi.nchannel):
             bestFits[k][dit, c, :] = np.dot(oi.visOi.p_matrices[dit, c, :, :], bestFits[k][dit, c, :])
-    
-
+            if GRADIENT:
+                bestFits_gradient[k][dit, c, :] = np.dot(oi.visOi.p_matrices[dit, c, :, :], bestFits_gradient[k][dit, c, :])                
+        
 # look for best opd on each baseline
 bestOpds = np.zeros([len(objOis), objOis[0].visOi.nchannel])
 for k in range(len(objOis)):
@@ -476,13 +517,20 @@ for k in range(len(PLANET_FILES)):
     preduce[list(preduce.keys())[0]]["astrometric_solution"] = [float(raBests[k]), float(decBests[k])] # YAML cannot convert numpy types
     ra_err, dec_err, rho = formal_errors[k]
     preduce[list(preduce.keys())[0]]["formal_errors"] = [float(ra_err), float(dec_err), float(rho)] # YAML cannot convert numpy types
-            
-f = open(CONFIG_FILE, "w")
-if RUAMEL:
-    f.write(ruamel.yaml.dump(cfg, Dumper=ruamel.yaml.RoundTripDumper))
-else:
-    f.write(yaml.safe_dump(cfg, default_flow_style = False)) 
-f.close()
+
+    
+# if this scrpit is used as a standalone script, save the updated yml file
+if __name__ == "__main__":
+    f = open(CONFIG_FILE, "w")
+    if RUAMEL:
+        f.write(ruamel.yaml.dump(cfg, Dumper=ruamel.yaml.RoundTripDumper))
+    else:
+        f.write(yaml.safe_dump(cfg, default_flow_style = False)) 
+    f.close()
+
+# otherwise, store the updated cfg in the parent package
+if __name__ != "__main__":
+    exogravity.cfg = cfg
 
 # get max distance in UV plane for plotting UV maps
 coords = np.concatenate([np.sqrt(oi.visOi.uCoord**2+oi.visOi.vCoord**2) for oi in objOis])
@@ -500,6 +548,45 @@ if not(FIGDIR is None):
     hdul.writeto(FIGDIR+"/chi2Maps.fits", overwrite = True)
 
     with PdfPages(FIGDIR+"/astrometry_fit_results.pdf") as pdf:
+
+        fig = plt.figure(figsize = (10, 10))        
+        ax = fig.add_subplot(111)
+        ax.plot(raGuesses, decGuesses, "oC4", label = "Global min per file")
+        ax.plot(raBests_local, decBests_local, "+C1", label = "Local min per file")
+        ax.plot(raBests, decBests, "+C2", alpha = 0.6)
+        if GRADIENT:
+            for k in range(len(objOis)):
+                # a line to connect the initial guess to the optimized solution
+                if k==0:
+                    l1, l2 = "Gradient descent per file", "Formal $\chi^2$ error"
+                else:
+                    l1, l2 = None, None
+                ax.plot([raGuesses[k], raBests[k]], [decGuesses[k], decBests[k]], "C2", linestyle = "dotted", label = l1, alpha = 0.6)
+                # the individual error ellipse derived from chi2
+                ra_err, dec_err, rho = formal_errors[k]
+                cov = np.array([[ra_err**2, rho*ra_err*dec_err], [rho*ra_err*dec_err, dec_err**2]])# reconstruct covariance                
+                val, vec = np.linalg.eig(cov) 
+                e1=matplotlib.patches.Ellipse((raBests[k], decBests[k]), 2*val[0]**0.5, 2*val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C2', linewidth=2, alpha = 0.6, linestyle='--', label = l2)       
+                ax.add_patch(e1)
+
+        try:
+            cov = np.cov(raBests, decBests)
+            val, vec = np.linalg.eig(cov)
+            e1=matplotlib.patches.Ellipse((raBests.mean(),decBests.mean()), val[0]**0.5, val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C0', linewidth=2, linestyle='-', label = "Dispersion on gradient descent")
+            ax.add_patch(e1)
+            ax.plot([np.mean(raBests)], [np.mean(decBests)], '+C0', label = "Mean of gradient descent")
+            ax.text(raBests.mean()+val[0]**0.5, decBests.mean()+val[1]**0.5, "RA={:.2f}+-{:.3f}\nDEC={:.2f}+-{:.3f}\nCOV={:.2f}".format(np.mean(raBests), cov[0, 0]**0.5, np.mean(decBests), cov[1, 1]**0.5, cov[0, 1]/np.sqrt(cov[0, 0]*cov[1, 1])), color="C0")
+        except np.linalg.LinAlgError:
+            printwar("infs or Nans when calculating covariance on astrometry solutions")
+    
+        ax.legend(loc=4)
+        ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
+        ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
+        plt.axis("equal")       
+        pdf.savefig()
+        plt.close(fig)
+        
+        
         dRa = raValues[1] - raValues[0]
         dDec = decValues[1] - decValues[0]    
         mapExtent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)]
@@ -559,44 +646,6 @@ if not(FIGDIR is None):
         plt.tight_layout()
         pdf.savefig()
         plt.close(fig)
-        
-        fig = plt.figure(figsize = (10, 10))
-        ax = fig.add_subplot(111)
-        ax.plot(raGuesses, decGuesses, "oC4", label = "Global min per file")
-        ax.plot(raBests_local, decBests_local, "+C1", label = "Local min per file")
-        ax.plot(raBests, decBests, "+C2", alpha = 0.6)
-        if GRADIENT:
-            for k in range(len(objOis)):
-                # a line to connect the initial guess to the optimized solution
-                if k==0:
-                    l1, l2 = "Gradient descent per file", "Formal $\chi^2$ error"
-                else:
-                    l1, l2 = None, None
-                ax.plot([raGuesses[k], raBests[k]], [decGuesses[k], decBests[k]], "C2", linestyle = "dotted", label = l1, alpha = 0.6)
-                # the individual error ellipse derived from chi2
-                ra_err, dec_err, rho = formal_errors[k]
-                cov = np.array([[ra_err**2, rho*ra_err*dec_err], [rho*ra_err*dec_err, dec_err**2]])# reconstruct covariance                
-                val, vec = np.linalg.eig(cov) 
-                e1=matplotlib.patches.Ellipse((raBests[k], decBests[k]), 2*val[0]**0.5, 2*val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C2', linewidth=2, alpha = 0.6, linestyle='--', label = l2)       
-                ax.add_patch(e1)
-
-        try:
-            cov = np.cov(raBests, decBests)
-            val, vec = np.linalg.eig(cov)
-            e1=matplotlib.patches.Ellipse((raBests.mean(),decBests.mean()), val[0]**0.5, val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C0', linewidth=2, linestyle='-', label = "Dispersion on gradient descent")
-            ax.add_patch(e1)
-            ax.plot([np.mean(raBests)], [np.mean(decBests)], '+C0', label = "Mean of gradient descent")
-            ax.text(raBests.mean()+val[0]**0.5, decBests.mean()+val[1]**0.5, "RA={:.2f}+-{:.3f}\nDEC={:.2f}+-{:.3f}\nCOV={:.2f}".format(np.mean(raBests), cov[0, 0]**0.5, np.mean(decBests), cov[1, 1]**0.5, cov[0, 1]/np.sqrt(cov[0, 0]*cov[1, 1])), color="C0")
-        except np.linalg.LinAlgError:
-            printwar("infs or Nans when calculating covariance on astrometry solutions")
-    
-        ax.legend(loc=4)
-        ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
-        ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
-        plt.axis("equal")       
-        pdf.savefig()
-        plt.close(fig)
-
         
         """
         # UV plot
@@ -658,17 +707,20 @@ if not(FIGDIR is None):
             wavelet = oi.visOi.getWavelet(raBests[k], decBests[k]) # we'll use the conj to move to planet frame
             waveletMean = np.exp(-1j*2*np.pi/w*np.tile(oi.visOi.getOpd(raBests[k], decBests[k]).mean(axis = 0), [oi.nwav, 1]).T) # to move the mean back to star frame
             gPlot.reImPlot(w, np.ma.masked_array(np.conj(wavelet)*(oi.visOi.visRef-bestFitStars[k]), oi.visOi.flag).mean(axis = 0)*waveletMean, subtitles = oi.basenames, fig = fig, xlabel = "Wavelength ($\mu\mathrm{m}$)")
-            gPlot.reImPlot(w, np.ma.masked_array(np.conj(wavelet)*bestFits[k], oi.visOi.flag).mean(axis = 0)*waveletMean, fig = fig)
-            plt.legend([oi.filename.split("/")[-1], "Astrometry fit"])
+            gPlot.reImPlot(w, np.ma.masked_array(np.conj(wavelet)*bestFits[k], oi.visOi.flag).mean(axis = 0)*waveletMean, fig = fig, alpha = 0.5)
+            if GRADIENT:
+                gPlot.reImPlot(w, np.ma.masked_array(np.conj(wavelet)*bestFits_gradient[k], oi.visOi.flag).mean(axis = 0)*waveletMean, fig = fig, alpha = 0.5)
+            plt.legend([oi.filename.split("/")[-1], "Global minimum of file", "Gradient descent"])
             pdf.savefig()
             
             fig = plt.figure(figsize=(10, 8))
             gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.visRef, oi.visOi.flag).mean(axis = 0), subtitles = oi.basenames, fig = fig, xlabel = "Wavelength ($\mu\mathrm{m}$)")
-            gPlot.reImPlot(w, np.ma.masked_array(bestFitStars[k], oi.visOi.flag).mean(axis = 0), fig = fig)
-            plt.legend([oi.filename.split("/")[-1], "Star fit"])
+            gPlot.reImPlot(w, np.ma.masked_array(bestFitStars[k], oi.visOi.flag).mean(axis = 0), fig = fig, alpha = 0.5)
+            if GRADIENT:
+                gPlot.reImPlot(w, np.ma.masked_array(bestFitStars_gradient[k], oi.visOi.flag).mean(axis = 0), fig = fig, alpha = 0.5)          
+            plt.legend([oi.filename.split("/")[-1], "Star fit global min", "Star fit gradient"])
             pdf.savefig()
             plt.close(fig)
-
 
         
 if SAVE_RESIDUALS:

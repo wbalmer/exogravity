@@ -15,7 +15,8 @@ import numpy as np
 import cleanGravity as gravity
 from cleanGravity import complexstats as cs
 from cleanGravity.utils import loadFitsSpectrum, saveFitsSpectrum
-from utils import * # utils from this exooGravity package
+# package related functions
+from exogravity.utils import * # utils from this exooGravity package
 # other random stuffs
 import itertools
 
