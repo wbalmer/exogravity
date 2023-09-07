@@ -78,11 +78,11 @@ GRADIENT = cfg["general"]["gradient"]
 
 if "ralim" in dargs.keys():
     RA_LIM = [float(dummy) for dummy in dargs["ralim"].replace("[", "").replace("]", "").split(",")]
-if "n_ra" in dargs.keys():
+if "nra" in dargs.keys():
     N_RA = int(dargs["nra"])
 if "declim" in dargs.keys():
     DEC_LIM = [float(dummy) for dummy in dargs["declim"].replace("[", "").replace("]", "").split(",")]    
-if "n_dec" in dargs.keys():
+if "ndec" in dargs.keys():
     N_DEC = int(dargs["ndec"])
 
 printinf("RA grid set to [{:.2f}, {:.2f}] with {:d} points".format(RA_LIM[0], RA_LIM[1], N_RA))
