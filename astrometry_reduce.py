@@ -77,30 +77,36 @@ if __name__ == "__main__":
         cfg = yaml.safe_load(open(CONFIG_FILE, "r"))
 
     # OVERWRITE SOME OF THE CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
-    if "figdir" in dargs.keys():
-        FIGDIR = dargs["figdir"] # bypass value from config file
-
-    # OVERWRITE SOME CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
     if "gofast" in dargs.keys():
         cfg["general"]["gofast"] = (dargs["gofast"].lower()=="true") # bypass value from config file
+        
     if "noinv" in dargs.keys():
         cfg["general"]["noinv"] = dargs["noinv"] # bypass value from config file
+        
     if "figdir" in dargs.keys():
         cfg["general"]["figdir"] = dargs["figdir"] # bypass value from config file
+        
     if "save_residuals" in dargs.keys():
         cfg["general"]["save_residuals"] = True # bypass value from config file
+        
     if "ralim" in dargs.keys():
         cfg["general"]["ralim"] = [float(dummy) for dummy in dargs["ralim"].replace("[", "").replace("]", "").split(",")]
+        
     if "nra" in dargs.keys():
         cfg["general"]["n_ra"] = int(dargs["nra"])
+        
     if "declim" in dargs.keys():
-        cfg["general"]["declim"] = [float(dummy) for dummy in dargs["declim"].replace("[", "").replace("]", "").split(",")]    
+        cfg["general"]["declim"] = [float(dummy) for dummy in dargs["declim"].replace("[", "").replace("]", "").split(",")]
+        
     if "ndec" in dargs.keys():
         cfg["general"]["n_dec"] = int(dargs["ndec"])
+        
     if "gradient" in dargs.keys():
         cfg["general"]["gradient"] = (dargs["gradient"].lower()=="true") # bypass value from config file
+        
     if "use_local" in dargs.keys():
-        cfg["general"]["use_local"] = (dargs["use_local"].lower()=="true") # bypass value from config file    
+        cfg["general"]["use_local"] = (dargs["use_local"].lower()=="true") # bypass value from config file
+        
     if not("save_residuals") in dargs.keys():
         cfg["general"]['save_residuals'] = False
 

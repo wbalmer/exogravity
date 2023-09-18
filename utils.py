@@ -5,6 +5,7 @@ Contains common functions used by other scripts
 @author: mnowak
 """
 from builtins import input
+import sys
 import time
 
 t0 = time.time()
