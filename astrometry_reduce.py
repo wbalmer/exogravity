@@ -570,13 +570,13 @@ if not(FIGDIR is None):
                 ax.plot([raGuesses[k], raBests[k]], [decGuesses[k], decBests[k]], "C2", linestyle = "dotted", label = l1, alpha = 0.6)
                 # the individual error ellipse derived from chi2
                 ra_err, dec_err, rho = formal_errors[k]
-                cov = np.array([[ra_err**2, rho*ra_err*dec_err], [rho*ra_err*dec_err, dec_err**2]])# reconstruct covariance                
-                val, vec = np.linalg.eig(cov) 
+                cov = np.array([[ra_err**2, rho*ra_err*dec_err], [rho*ra_err*dec_err, dec_err**2]]) # reconstruct covariance                
+                val, vec = np.linalg.eig(cov)
                 e1=matplotlib.patches.Ellipse((raBests[k], decBests[k]), 2*val[0]**0.5, 2*val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C2', linewidth=2, alpha = 0.6, linestyle='--', label = l2)       
                 ax.add_patch(e1)
 
         try:
-            cov = np.cov(raBests, decBests)
+            cov = np.cov(raBests, decBests)/len(raBests)
             val, vec = np.linalg.eig(cov)
             e1=matplotlib.patches.Ellipse((raBests.mean(),decBests.mean()), val[0]**0.5, val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C0', linewidth=2, linestyle='-', label = "Dispersion on gradient descent")
             ax.add_patch(e1)

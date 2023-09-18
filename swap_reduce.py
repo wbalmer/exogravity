@@ -278,7 +278,6 @@ if GRADIENT:
     visRefs1_noerr = [np.copy(oi.visOi.visRef) for oi in ois1]
     visRefs2_noerr = [np.copy(oi.visOi.visRef) for oi in ois2]
     for r in range(n_trials):
-        print(r)
         for k in range(len(ois1)):
             oi = ois1[k]
             for dit in range(oi.visOi.ndit):
