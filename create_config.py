@@ -426,6 +426,7 @@ calib_dict = {"star_name": None,
 cfg = {"general": general,
        "planet_ois": planet_files,
        "star_ois": star_files,
+       "swap_ois": swap_files,       
        "spectral_calibration": calib_dict 
    }
 
