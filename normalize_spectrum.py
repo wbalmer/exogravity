@@ -89,6 +89,7 @@ for key in calib_dict["magnitudes"].keys():
 printinf("Loading contrast spectrum from {}".format(dargs["file"]))
 wav, flux, fluxCov, contrast, contrastCov = loadFitsSpectrum(dargs['file'])
 resolution = fits.open(dargs["file"])[0].header["SPECRES"]
+resolution = 506
 
 # init SPECIES
 printinf("Initialising exogravity species instance")
@@ -101,7 +102,7 @@ database = species.Database()
 # remove objects and fits to start from fresh
 database.delete_data("objects")
 database.delete_data("results/fit")
-database.delete_data("models")
+#database.delete_data("models")
 # add object
 database.add_object(object_name=calib_dict["star_name"], parallax=calib_dict["parallax"], app_mag=calib_dict["magnitudes"], spectrum=None)
 
@@ -159,7 +160,22 @@ for filt in calib_dict["magnitudes"].keys():
 fig = species.plot_posterior(tag=calib_dict["star_name"], offset=(-0.3, -0.3), output=FIGDIR+"/species_spectral_calibration_results.pdf")
 
 # create temp pdf to add to species pdf
-with PdfPages(FIGDIR+"/temp_spectral_calibration_results.pdf") as pdf:
+with PdfPages(FIGDIR+"/spectral_calibration_results.pdf") as pdf:
+    pdf.savefig(fig)
+
+    fig = plt.figure()
+    ax1 = fig.add_subplot(211)
+    ax1.plot(wav, spec_flux)
+    ax1.set_ylabel("Stellar Flux ($10^{-15}\,\mathrm{W}/\mathrm{m}^2/\mu\mathrm{m}$)")
+    ax1.set_xlabel("Wavelength ($\mu\mathrm{m})$")
+    ax2 = fig.add_subplot(212)
+    ax2.plot(wav, contrast)
+    ax2.set_ylabel("Contrast")
+    ax2.set_xlabel("Wavelength ($\mu\mathrm{m})$")        
+    plt.tight_layout()
+    pdf.savefig()
+    plt.close(fig)
+    
     fig = plt.figure()
     ax1 = fig.add_subplot(211)
     ax1.errorbar(wav, contrast, yerr = np.diag(contrastCov)**0.5)
@@ -188,19 +204,4 @@ with PdfPages(FIGDIR+"/temp_spectral_calibration_results.pdf") as pdf:
     plt.tight_layout()        
     pdf.savefig(fig)
     plt.close(fig)
-    
-# merge the 2 pdfs
-output = PdfFileWriter()
-pdfOne = PdfFileReader(open(FIGDIR+"/temp_spectral_calibration_results.pdf", "rb"))
-pdfTwo = PdfFileReader(open(FIGDIR+"/species_spectral_calibration_results.pdf", "rb"))
-for k in range(len(pdfOne.pages)):
-    output.addPage(pdfOne.getPage(k))
-for k in range(len(pdfTwo.pages)):    
-    output.addPage(pdfTwo.getPage(k))
-outputStream = open(FIGDIR+"/spectral_calibration_results.pdf", "wb")
-output.write(outputStream)
-outputStream.close()
 
-# remove temps pdf
-os.remove(FIGDIR+"/species_spectral_calibration_results.pdf")
-os.remove(FIGDIR+"/temp_spectral_calibration_results.pdf")
