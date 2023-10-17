@@ -58,118 +58,149 @@ Version:
   xx.xx
 """
 
+# basic imports
+import sys, os
+import numpy as np
 import astropy.io.fits as fits
 from datetime import datetime
-import numpy as np
+# cleanGravity 
 import cleanGravity as gravity
-import glob
-import sys
-import os
+# package related functions
+from exogravity.utils import * # utils from this exoGravity package
+from exogravity.common import *
+# ruamel to read config yml file
 try:
     import ruamel.yaml
     RUAMEL = True
 except: # if ruamel not available, switch back to pyyaml, which does not handle comments properly
     import yaml
     RUAMEL = False
-from utils import * 
+# other random stuff
+import glob
 
+# arg should be the path to the folder containing the data, and the path to the config yml file to write 
 REQUIRED_ARGS = ["datadir", "output"]
 
-dargs = args_to_dict(sys.argv)
+# IF BEING RUN AS A SCRIPT, LOAD COMMAND LINE ARGUMENTS
+if __name__ == "__main__":    
+    # load arguments into a dictionnary
+    dargs = args_to_dict(sys.argv)
 
-if "help" in dargs.keys():
-    print(__doc__)
-    stop()
+    # if user asks for help, print the doc and exit
+    if "help" in dargs.keys():
+        print(__doc__)
+        sys.exit()
 
-for req in REQUIRED_ARGS:
-    if not(req in dargs.keys()):
-        printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
-        stop()
+    # make sure the required arguments for this script are all here
+    for req in REQUIRED_ARGS:
+        if not(req in dargs.keys()):
+            printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
 
-if not(os.path.isdir(dargs["datadir"])):
-    printerr("Data directory {} not found".format(dargs["datadir"]))
-    stop()
+    if not(os.path.isdir(dargs["datadir"])):
+        printerr("Data directory {} not found".format(dargs["datadir"]))
 
-if os.path.isfile(dargs["output"]):
-    printinf("File {} already exists.".format(dargs["output"]))
-    r = printinp("Overwrite it? (y/n)")
-    if not(r.lower() in ["y", "yes"]):
-        printerr("User abort")
-        stop()
+    if os.path.isfile(dargs["output"]):
+        printinf("File {} already exists.".format(dargs["output"]))
+        r = printinp("Overwrite it? (y/n)")
+        if not(r.lower() in ["y", "yes"]):
+            printerr("User abort")
 
+# if this file is being used as a module, load the dargs dict from parent package
+if __name__ != "__main__":
+    import exogravity
+    dargs = exogravity.dargs
+
+#######################
+# START OF THE SCRIPT #
+#######################        
+        
+# A whole bunch of arguments can have default values for the lazy user
 if not("ralim" in dargs.keys()) or not("declim" in dargs.keys()):
     printwar("ralim or declim not provided in args. Default: fiber position +/- 30 mas (UTs) or +/- 120 mas (ATs).")
     dargs["ralim"] = None
     dargs["declim"] = None
-
+        
 if not("ralim_swap" in dargs.keys()) or not("declim_swap" in dargs.keys()):
     printwar("ralim_swap or declim_swap not provided in args. Default: fiber position +/- 30 mas (UTs) or +/- 120 mas (ATs).")
     dargs["ralim_swap"] = None
-    dargs["declim_swap"] = None    
-
+    dargs["declim_swap"] = None
+        
 if not("nra" in dargs.keys()):
     printwar("nra not provided in args. Default: nra=100")
     dargs["nra"] = 50
 else:
     dargs["nra"] = int(dargs["nra"])
+        
 if not("ndec" in dargs.keys()):
     printwar("ndec not provided in args. Default: ndec=100")
     dargs["ndec"] = 50
 else:
-    dargs["ndec"] = int(dargs["ndec"])    
+    dargs["ndec"] = int(dargs["ndec"])
+    
 if not("nopd" in dargs.keys()):
     printwar("nopd not provided in args. Default: to nopd=100")
     dargs["nopd"] = 50
 else:
-    dargs["nopd"] = int(dargs["nopd"])    
+    dargs["nopd"] = int(dargs["nopd"])
+        
 if not("nra_swap" in dargs.keys()):
     printwar("nra_swap not provided in args. Default: nra=100")
     dargs["nra_swap"] = 100
 else:
-    dargs["nra_swap"] = int(dargs["nra_swap"])    
+    dargs["nra_swap"] = int(dargs["nra_swap"])
+    
 if not("ndec_swap" in dargs.keys()):
     printwar("ndec_swap not provided in args. Default: ndec=100")
     dargs["ndec_swap"] = 100
 else:
-    dargs["ndec_swap"] = int(dargs["ndec_swap"])    
+    dargs["ndec_swap"] = int(dargs["ndec_swap"])
+    
 if not("star_order" in dargs.keys()):
     printwar("star_order not provided in args. Default: star_order=4")
     dargs["star_order"] = 4
 else:
-    dargs["star_order"] = int(dargs["star_order"])    
+    dargs["star_order"] = int(dargs["star_order"])
+    
 if not("gofast" in dargs.keys()):
     printwar("Value for gofast option not set. Defaut: gofast=False")
     dargs['gofast'] = False
+    
 if not("gradient" in dargs.keys()):
     printwar("Value for gradient option not set. Defaut: gradient=True")
     dargs['gradient'] = True
+        
 if not("use_local" in dargs.keys()):
     printwar("Value for use_local option not set. Defaut: use_local=False")
-    dargs['use_local'] = False            
+    dargs['use_local'] = False
+        
 if not("noinv" in dargs.keys()):
     printwar("Value for noinv option not set. Default: noinv=False")
     dargs['noinv'] = False
+        
 if not("reflag" in dargs.keys()):
     printwar("Value for reflag not given. Default: reflag = False")
     dargs['reflag'] = False
+        
 if not("contrast_file" in dargs.keys()):
     printwar("Contrast file not given. Constant contrast will be used")
     dargs['contrast_file'] = None
+        
 if not("extension" in dargs.keys()):
     printwar("extension not given. Using basic value '10'.")
-    dargs['extension'] = 10
+    dargs['extension'] = 10       
 else:
-    dargs["extension"] = int(dargs["extension"])    
+    dargs["extension"] = int(dargs["extension"])
+        
 if not("star_diameter" in dargs.keys()):
     printwar("star_diameter not provided in args. Default: star_diameter=0 (point source)")
     dargs["star_diameter"] = 0
 else:
     dargs["star_diameter"] = float(dargs["star_diameter"])
     
-
 if not("corr_met" in dargs.keys()):
     printwar("corr_met not specified. Using 'sylvestre'")
     dargs["corr_met"] = "sylvestre"
+        
 if not("corr_disp" in dargs.keys()):
     printwar("corr_disp not specified. Using 'sylvestre'")
     dargs["corr_disp"] = "sylvestre"
@@ -180,7 +211,7 @@ if not("swap_target" in dargs.keys()):
 
 if not("target" in dargs.keys()):
     dargs["target"] = None
-
+    
 if not("calib_strategy" in dargs.keys()):
     printwar("calib strategy not given. Using default 'nearest'")
     dargs["calib_strategy"] = "nearest"
@@ -192,6 +223,7 @@ if not("reduction" in dargs.keys()):
 if not("phaseref_arclength_threshold" in dargs.keys()):
     printwar("phaseref_arclength_threshold not given. Using default value of 5")
     dargs["phaseref_arclength_threshold"] = 5
+        
 if not("ft_flux_threshold" in dargs.keys()):
     printwar("ft_flux_threshold not given. Using default value of 0.2")
     dargs["ft_flux_threshold"] = 0.2
@@ -206,7 +238,6 @@ if not("fiber_pos" in dargs.keys()):
 else:
     FIBER_POS = [float(val) for val in dargs["fiber_pos"].split("[")[1].split("]")[-2].split(",")]
 
-    
 # load the datafiles
 datafiles = glob.glob(dargs["datadir"]+'/GRAVI*'+dargs["reduction"]+'*.fits')
 # remove duplicates with _s extension
@@ -430,11 +461,18 @@ cfg = {"general": general,
        "spectral_calibration": calib_dict 
    }
 
-f = open(dargs["output"], "w")
-if RUAMEL:
-    f.write(ruamel.yaml.dump(cfg, default_flow_style = False))
-else:
-    f.write(yaml.safe_dump(cfg, default_flow_style = False)) 
-f.close()
 
-printinf("Saved config for {:d} files to {}".format(len(datafiles), dargs["output"]))
+# is used as a self-contained script, write the yml
+if __name__ == "__main__":
+    f = open(dargs["output"], "w")
+    if RUAMEL:
+        f.write(ruamel.yaml.dump(cfg, default_flow_style = False))
+    else:
+        f.write(yaml.safe_dump(cfg, default_flow_style = False)) 
+    f.close()
+    printinf("Saved config for {:d} files to {}".format(len(datafiles), dargs["output"]))
+
+# otherwise, just store it in parent exogravity package
+if __name__ != "__main__":
+    exogravity.cfg = cfg
+    

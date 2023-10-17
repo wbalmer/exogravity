@@ -21,11 +21,14 @@ Version:
 """
 
 # BASIC IMPORTS
+import sys, os
 import numpy as np
 import astropy.io.fits as fits
+# cleanGravity package
 import cleanGravity as gravity
-from utils import * # utils from this exoGravity package
-from common import *
+# package related functions
+from exogravity.utils import * # utils from this exoGravity package
+from exogravity.common import *
 # ruamel to read config yml file
 try:
     import ruamel.yaml
@@ -33,37 +36,62 @@ try:
 except: # if ruamel not available, switch back to pyyaml, which does not handle comments properly
     import yaml
     RUAMEL = False
-import sys, os
 
-# load aguments into a dictionnary
-dargs = args_to_dict(sys.argv)
-
-if "help" in dargs.keys():
-    print(__doc__)
-    stop()
-
-# arg should be the path to the config yal file    
+# arg should be the path to the config yml file    
 REQUIRED_ARGS = ["config_file"]
-for req in REQUIRED_ARGS:
-    if not(req in dargs.keys()):
-        printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
 
-CONFIG_FILE = dargs["config_file"]
-if not(os.path.isfile(CONFIG_FILE)):
-    raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
-if not("save_residuals") in dargs.keys():
-    dargs['save_residuals'] = False
+# IF BEING RUN AS A SCRIPT, LOAD COMMAND LINE ARGUMENTS
+if __name__ == "__main__":    
+    # load arguments into a dictionnary
+    dargs = args_to_dict(sys.argv)
+
+    # if user asks for help, print the doc and exit
+    if "help" in dargs.keys():
+        print(__doc__)
+        sys.exit()
+
+    # make sure the required arguments for this script are all here
+    for req in REQUIRED_ARGS:
+        if not(req in dargs.keys()):
+            printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
+
+    CONFIG_FILE = dargs["config_file"]
+    if not(os.path.isfile(CONFIG_FILE)):
+        raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
     
-# READ THE CONFIGURATION FILE
-if RUAMEL:
-    cfg = ruamel.yaml.load(open(CONFIG_FILE, "r"), Loader=ruamel.yaml.RoundTripLoader)
-else:
-    cfg = yaml.safe_load(open(CONFIG_FILE, "r"))
-    
+    # READ THE CONFIGURATION FILE
+    if RUAMEL:
+        cfg = ruamel.yaml.load(open(CONFIG_FILE, "r"), Loader=ruamel.yaml.RoundTripLoader)
+    else:
+        cfg = yaml.safe_load(open(CONFIG_FILE, "r"))
+
+    # OVERWRITE SOME OF THE CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
+    if "figdir" in dargs.keys():
+        FIGDIR = dargs["figdir"] # bypass value from config file
+
+    if not("save_residuals") in dargs.keys():
+        dargs['save_residuals'] = False
+
+# IF THIS FILE IS RUNNING AS A MODULE, WE WILL TAKE CONFIGURATION FILE FROM THE PARENT MODULE
+if __name__ != "__main__":
+    import exogravity
+    cfg = exogravity.cfg
+
+
+#######################
+# START OF THE SCRIPT #
+#######################
+
 DATA_DIR = cfg["general"]["datadir"]
 PHASEREF_MODE = cfg["general"]["phaseref_mode"]
 FIGDIR = cfg["general"]["figdir"]
+EXTENSION = cfg["general"]["extension"]
+REDUCTION = cfg["general"]["reduction"]
+PHASEREF_ARCLENGTH_THRESHOLD = cfg["general"]["phaseref_arclength_threshold"]
+FT_FLUX_THRESHOLD = cfg["general"]["ft_flux_threshold"]
+
 PLANET_FILES = [DATA_DIR+cfg["planet_ois"][preduce[list(preduce.keys())[0]]["planet_oi"]]["filename"] for preduce in cfg["general"]["reduce_planets"]]
+
 if not("swap_ois" in cfg.keys()):
     SWAP_FILES = []
 elif cfg["swap_ois"] is None:
@@ -71,16 +99,8 @@ elif cfg["swap_ois"] is None:
 else:
     SWAP_FILES = [DATA_DIR+cfg["swap_ois"][preduce[list(preduce.keys())[0]]["swap_oi"]]["filename"] for preduce in cfg["general"]["reduce_swaps"]]
 
-EXTENSION = cfg["general"]["extension"]
-REDUCTION = cfg["general"]["reduction"]
 
-PHASEREF_ARCLENGTH_THRESHOLD = cfg["general"]["phaseref_arclength_threshold"]
-FT_FLUX_THRESHOLD = cfg["general"]["ft_flux_threshold"]
-
-# OVERWRITE SOME OF THE CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
-if "figdir" in dargs.keys():
-    FIGDIR = dargs["figdir"] # bypass value from config file
-
+        
 # LOAD GRAVITY PLOT is savefig requested
 if not(FIGDIR is None):
     import matplotlib

@@ -24,20 +24,15 @@ Version:
 """
 
 # standard imports
-import numpy as np
-import scipy.optimize
 import sys, os
-import glob
-import itertools
+import numpy as np
 import astropy.io.fits as fits
-
 # cleanGravity imports
 import cleanGravity as gravity
 from cleanGravity import complexstats as cs
-
-# local stuff
-from utils import *
-
+# local package functions
+from exogravity.utils import *
+from exogravity.common import *
 # ruamel to read config yml file
 try:
     import ruamel.yaml
@@ -45,29 +40,72 @@ try:
 except: # if ruamel not available, switch back to pyyaml, which does not handle comments properly
     import yaml
     RUAMEL = False
+# other stuff
+import scipy.optimize
+import itertools
 
-# arg should be the path to the data directory
-dargs = args_to_dict(sys.argv)
-
-if "help" in dargs.keys():
-    print(__doc__)
-    stop()
-    
+# arg should be the path to the config yml file    
 REQUIRED_ARGS = ["config_file"]
-for req in REQUIRED_ARGS:
-    if not(req in dargs.keys()):
-        printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
-        stop()
 
-# READ THE CONFIGURATION FILE
-CONFIG_FILE = dargs["config_file"]
-if not(os.path.isfile(CONFIG_FILE)):
-    raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
-if RUAMEL:
-    cfg = ruamel.yaml.load(open(CONFIG_FILE, "r"), Loader=ruamel.yaml.RoundTripLoader)
-else:
-    cfg = yaml.safe_load(open(CONFIG_FILE, "r"))
+# IF BEING RUN AS A SCRIPT, LOAD COMMAND LINE ARGUMENTS
+if __name__ == "__main__":    
+    # load arguments into a dictionnary
+    dargs = args_to_dict(sys.argv)
 
+    # if user asks for help, print the doc and exit
+    if "help" in dargs.keys():
+        print(__doc__)
+        sys.exit()
+
+    # make sure the required arguments for this script are all here
+    for req in REQUIRED_ARGS:
+        if not(req in dargs.keys()):
+            printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
+
+    CONFIG_FILE = dargs["config_file"]
+    if not(os.path.isfile(CONFIG_FILE)):
+        raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
+    
+    # READ THE CONFIGURATION FILE
+    if RUAMEL:
+        cfg = ruamel.yaml.load(open(CONFIG_FILE, "r"), Loader=ruamel.yaml.RoundTripLoader)
+    else:
+        cfg = yaml.safe_load(open(CONFIG_FILE, "r"))
+
+    # OVERWRITE SOME CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
+    if "gofast" in dargs.keys():
+        cfg["general"]["gofast"] = (dargs["gofast"].lower()=="true") # bypass value from config file
+
+    if "gradient" in dargs.keys():
+        cfg["general"]["gradient"] = (dargs["gradient"].lower()=="true") # bypass value from config file
+        
+    if "figdir" in dargs.keys():
+        cfg["general"]["figdir"] = dargs["figdir"] # bypass value from config file        
+    
+    if "ralim" in dargs.keys():
+        cfg["general"]["ralim"] = [float(dummy) for dummy in dargs["ralim"].replace("[", "").replace("]", "").split(",")]
+        
+    if "nra" in dargs.keys():
+        cfg["general"]["n_ra"] = int(dargs["nra"])
+        
+    if "declim" in dargs.keys():
+        cfg["general"]["declim"] = [float(dummy) for dummy in dargs["declim"].replace("[", "").replace("]", "").split(",")]
+        
+    if "ndec" in dargs.keys():
+        cfg["general"]["n_dec"] = int(dargs["ndec"])
+
+        
+
+# IF THIS FILE IS RUNNING AS A MODULE, WE WILL TAKE CONFIGURATION FILE FROM THE PARENT MODULE
+if __name__ != "__main__":
+    import exogravity
+    cfg = exogravity.cfg
+
+    
+#######################
+# START OF THE SCRIPT #
+#######################        
+        
 N_RA = cfg["general"]["n_ra_swap"]
 N_DEC = cfg["general"]["n_dec_swap"]
 RA_LIM = cfg["general"]["ralim_swap"]
@@ -75,39 +113,19 @@ DEC_LIM = cfg["general"]["declim_swap"]
 EXTENSION = cfg["general"]["extension"]
 REDUCTION = cfg["general"]["reduction"]
 GRADIENT = cfg["general"]["gradient"]
-
-if "ralim" in dargs.keys():
-    RA_LIM = [float(dummy) for dummy in dargs["ralim"].replace("[", "").replace("]", "").split(",")]
-if "nra" in dargs.keys():
-    N_RA = int(dargs["nra"])
-if "declim" in dargs.keys():
-    DEC_LIM = [float(dummy) for dummy in dargs["declim"].replace("[", "").replace("]", "").split(",")]    
-if "ndec" in dargs.keys():
-    N_DEC = int(dargs["ndec"])
+FIGDIR = cfg["general"]["figdir"]
+GO_FAST = cfg["general"]["gofast"]
 
 printinf("RA grid set to [{:.2f}, {:.2f}] with {:d} points".format(RA_LIM[0], RA_LIM[1], N_RA))
 printinf("DEC grid set to [{:.2f}, {:.2f}] with {:d} points".format(DEC_LIM[0], DEC_LIM[1], N_DEC))
 
 # GET FILES FOR THE SWAP 
 if not("swap_ois" in cfg.keys()):
-    printerr("No SWAP files given in {}!".format(CONFIG_FILE))
+    printerr("No SWAP files given!")
 DATA_DIR = cfg['general']['datadir']    
 SWAP_FILES = [DATA_DIR+cfg["swap_ois"][preduce[list(preduce.keys())[0]]["swap_oi"]]["filename"] for preduce in cfg["general"]["reduce_swaps"]]
 SWAP_REJECT_DITS = [preduce[list(preduce.keys())[0]]["reject_dits"] for preduce in cfg["general"]["reduce_swaps"]]
 SWAP_REJECT_BASELINES = [preduce[list(preduce.keys())[0]]["reject_baselines"] for preduce in cfg["general"]["reduce_swaps"]]
-
-# load other parameters
-if "gofast" in dargs.keys():
-    GO_FAST = dargs["gofast"].lower()=="true" # bypass value from config file
-else: # default is False
-    GO_FAST = False
-if "gradient" in dargs.keys():
-    GRADIENT = dargs["gradient"].lower()=="true" # bypass value from config file
-    
-# figdir to know where to put figures
-FIGDIR = cfg["general"]["figdir"]
-if "figdir" in dargs.keys(): # overwrite
-    FIGDIR = dargs["figdir"]
 
 # LOAD GRAVITY PLOT is savefig requested
 if not(FIGDIR is None):
@@ -145,10 +163,8 @@ printinf("Found {:d} OBs for Group 1 and {:d} for Group 2".format(len(ois1), len
 # check if no group is empty
 if len(ois1) == 0:
     printerr("Group 1 does not contain any OB")
-    stop()
 if len(ois2) == 0:
     printerr("Group 2 does not contain any OB")
-    stop()
 
 # filter data
 if REDUCTION == "astrored":
@@ -198,17 +214,17 @@ def compute_chi2(ois1, ois2, ra, dec):
         phase = 2*np.pi*this_u*1e7/3600.0/360.0/1000.0*2*np.pi
         phi = np.exp(1j*phase)
         if oi.swap:
-            visRefS1 = visRefS1+np.nansum(np.conj(phi)*oi.visOi.visRef*(1-oi.visOi.flag), axis = 0)
+            visRefS1 = visRefS1+np.nansum(np.conj(phi)*(oi.visOi.visRef)*(1-oi.visOi.flag), axis = 0)
             nGoodPointsS1 = nGoodPointsS1+(1-oi.visOi.flag).sum(axis = 0)
         else:
             visRefS2 = visRefS2+np.nansum(phi*oi.visOi.visRef*(1-oi.visOi.flag), axis = 0)
             nGoodPointsS2 = nGoodPointsS2+(1-oi.visOi.flag).sum(axis = 0)
     visRefS1 = visRefS1/nGoodPointsS1
     visRefS2 = visRefS2/nGoodPointsS2
-    visRefSwap = np.sqrt(visRefS1*np.conj(visRefS2))
+    visRefSwap = np.sqrt(visRefS1*np.conj(visRefS2))                
     chi2 = np.nansum(np.imag(visRefSwap)**2)
     chi2_baselines = np.nansum(np.imag(visRefSwap)**2, axis = 1)
-    return chi2, chi2_baselines, visRefSwap
+    return chi2, chi2_baselines, visRefSwap, np.abs(visRefS1)/np.abs(visRefS2)
 
 
 # prepare chi2Maps
@@ -231,7 +247,7 @@ for i in range(N_RA):
     printinf("Calculating chi2 map for ra value {} ({}/{})".format(ra, i+1, N_RA))
     for j in range(N_DEC):
         dec = decValues[j]
-        chi2, chi2_baselines, visRefSwap = compute_chi2(ois1, ois2, ra, dec)
+        chi2, chi2_baselines, visRefSwap, v1_v2_ratio = compute_chi2(ois1, ois2, ra, dec)
         chi2Map[i, j] = chi2
         chi2Map_baselines[:, i, j] = chi2_baselines
         if chi2Map[i, j] < chi2Best:
@@ -239,7 +255,6 @@ for i in range(N_RA):
             raGuess = ra
             decGuess = dec
             bestFit = np.real(visRefSwap)+0j
-            visRefSwapBest = visRefSwap
 
 printinf("Best astrometric solution on map: RA={}, DEC={}".format(raGuess, decGuess))
 
@@ -250,23 +265,65 @@ if GRADIENT:
     opt = scipy.optimize.minimize(chi2, x0=[raGuess, decGuess])
     raBest = opt["x"][0]
     decBest = opt["x"][1]
-    printinf("Best astrometric solution after gradient descent: RA={}, DEC={}".format(raBest, decBest))    
+    chi2, chi2_baselines, visRefSwap, v1_v2_ratio = compute_chi2(ois1, ois2, raBest, decBest)
+    bestFit = np.real(visRefSwap)+0j
+    bestFitS1 = bestFit*np.sqrt(v1_v2_ratio)
+    bestFitS2 = bestFit/np.sqrt(v1_v2_ratio)
+    printinf("Best astrometric solution after gradient descent: RA={}, DEC={}".format(raBest, decBest))
+    # generate error bars from random trials
+    printinf("Generating error bars from random trials.")
+    n_trials = 20 
+    astrometry_trials = np.zeros([n_trials, 2])   
+    # make a copy of the visRef for future use
+    visRefs1_noerr = [np.copy(oi.visOi.visRef) for oi in ois1]
+    visRefs2_noerr = [np.copy(oi.visOi.visRef) for oi in ois2]
+    for r in range(n_trials):
+        for k in range(len(ois1)):
+            oi = ois1[k]
+            for dit in range(oi.visOi.ndit):
+                for c in range(oi.visOi.nchannel):
+#                    err = (np.random.multivariate_normal(np.zeros(oi.nwav), np.real(oi.visOi.visRefCov[dit][c].todense()+oi.visOi.visRefPcov[dit][c].todense())/2) + 1j*np.random.multivariate_normal(np.zeros(oi.nwav), np.real(oi.visOi.visRefCov[dit][c].todense()-oi.visOi.visRefPcov[dit][c].todense())/2))
+                    err = (np.random.randn(oi.nwav)*np.diag( np.real(oi.visOi.visRefCov[dit][c].todense()+oi.visOi.visRefPcov[dit][c].todense())/2 )**0.5 + 1j*np.random.randn(oi.nwav) * np.diag( np.real(oi.visOi.visRefCov[dit][c].todense()-oi.visOi.visRefPcov[dit][c].todense())/2)**0.5)
+                    oi.visOi.visRef[dit, c, :] = visRefs1_noerr[k][dit, c, :] + err
+        for k in range(len(ois2)):
+            oi = ois2[k]
+            for dit in range(oi.visOi.ndit):            
+                for c in range(oi.visOi.nchannel):
+#                    err = (np.random.multivariate_normal(np.zeros(oi.nwav), np.real(oi.visOi.visRefCov[dit][c].todense()+oi.visOi.visRefPcov[dit][c].todense())/2) + 1j*np.random.multivariate_normal(np.zeros(oi.nwav), np.real(oi.visOi.visRefCov[dit][c].todense()-oi.visOi.visRefPcov[dit][c].todense())/2))
+                    err = (np.random.randn(oi.nwav)*np.diag( np.real(oi.visOi.visRefCov[dit][c].todense()+oi.visOi.visRefPcov[dit][c].todense())/2)**0.5 + 1j*np.random.randn(oi.nwav) * np.diag( np.real(oi.visOi.visRefCov[dit][c].todense()-oi.visOi.visRefPcov[dit][c].todense())/2)**0.5)
+                    oi.visOi.visRef[dit, c, :] = visRefs2_noerr[k][dit, c, :] + err
+        chi2 = lambda dastro : compute_chi2(ois1, ois2, raBest+dastro[0]/1000, decBest+dastro[1]/1000)[0]/chi2norm # only chi2, not per baseline                
+        opt = scipy.optimize.minimize(chi2, x0=[10, 10])
+        astrometry_trials[r, :] = opt["x"]/1000
+        cov_mat = np.cov(astrometry_trials.T) 
+        ra_std = cov_mat[0, 0]**0.5
+        dec_std = cov_mat[1, 1]**0.5
+        rho = cov_mat[0, 1]/(ra_std*dec_std)       
 else:
     raBest = raGuess
     decBest = decGuess
+    ra_std = float("nan")
+    dec_std = float("nan")
+    rho = float("nan")
     
 # get the astrometric values and add it to the YML file (same value for all swap Ois)
 for key in cfg['swap_ois'].keys():
     cfg["swap_ois"][key]["astrometric_solution"] = [float(raBest), float(decBest)] # YAML cannot convert numpy types
-    cfg["swap_ois"][key]["astrometric_guess"] = [float(raGuess), float(decGuess)] # YAML cannot convert numpy types    
+    cfg["swap_ois"][key]["astrometric_guess"] = [float(raGuess), float(decGuess)] # YAML cannot convert numpy types 
+    cfg["swap_ois"][key]["errors"] = [float(ra_std), float(dec_std), float(rho)] 
 
-# rewrite the YML
-f = open(CONFIG_FILE, "w")
-if RUAMEL:
-    f.write(ruamel.yaml.dump(cfg, Dumper=ruamel.yaml.RoundTripDumper))
-else:
-    f.write(yaml.safe_dump(cfg, default_flow_style = False)) 
-f.close()
+# if this script is used as a standalone script, save the updated yml file
+if __name__ == "__main__":
+    f = open(CONFIG_FILE, "w")
+    if RUAMEL:
+        f.write(ruamel.yaml.dump(cfg, Dumper=ruamel.yaml.RoundTripDumper))
+    else:
+        f.write(yaml.safe_dump(cfg, default_flow_style = False)) 
+    f.close()
+
+# otherwise, store the updated cfg in the parent package
+if __name__ != "__main__":
+    exogravity.cfg = cfg    
     
 # we'll need the phase reference for the plots
 for oi in ois1+ois2:
@@ -326,9 +383,9 @@ if not(FIGDIR is None):
             phase = 2*np.pi*this_u*1e7/3600.0/360.0/1000.0*2*np.pi
             phi = np.exp(1j*phase)
             if oi.swap:
-                gPlot.reImPlot(w, np.ma.masked_array(phi*bestFit, oi.visOi.flag).mean(axis = 0), fig = fig)                
+                gPlot.reImPlot(w, np.ma.masked_array(phi*bestFitS1, oi.visOi.flag).mean(axis = 0), fig = fig)                
             else:
-                gPlot.reImPlot(w, np.ma.masked_array(np.conj(phi)*bestFit, oi.visOi.flag).mean(axis = 0), fig = fig)
+                gPlot.reImPlot(w, np.ma.masked_array(np.conj(phi)*bestFitS2, oi.visOi.flag).mean(axis = 0), fig = fig)
             plt.legend([oi.filename.split("/")[-1], "Swap fit (from combined files)"])
             pdf.savefig()
             

@@ -5,6 +5,7 @@ Contains common functions used by other scripts
 @author: mnowak
 """
 from builtins import input
+import sys
 import time
 
 t0 = time.time()
@@ -23,7 +24,7 @@ def printwar(msg):
 def printerr(msg):
     """Print an error message preceded by [ERROR]: and stop the execution"""        
     print("[ERROR]: t={:.2f}s ".format(time.time()-t0) + msg)
-    stop()
+    sys.exit()
 
 def printinp(msg):
     """Request an input from the user using a message preceded by [INPUT]:"""
