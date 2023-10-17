@@ -78,6 +78,12 @@ contrastCov_tot = np.linalg.inv(contrastCovInv_tot)
 flux_tot = np.dot(fluxCov_tot, flux_tot)
 contrast_tot = np.dot(contrastCov_tot, contrast_tot)
 
-printinf("Saving result in {}".format(dargs["output"]))
+if "smooth" in dargs:
+    printinf("Smoothing the spectra...")
+    smooth = int(dargs["smooth"])
+    flux_tot = np.convolve(flux_tot, np.ones(smooth), mode = "same")/np.convolve(np.ones(len(flux_tot)), np.ones(smooth), mode = "same")
+    contrast_tot = np.convolve(contrast_tot, np.ones(smooth), mode = "same")/np.convolve(np.ones(len(contrast_tot)), np.ones(smooth), mode = "same")    
 
+printinf("Saving result in {}".format(dargs["output"]))
+    
 saveFitsSpectrum(dargs['output'], wav_tot, flux_tot, fluxCov_tot, contrast_tot, contrastCov_tot)
