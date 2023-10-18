@@ -216,16 +216,14 @@ else:
         else:
             FIELD = 240 # UT field    
 
-if ((dargs["ralim"] is None) or (dargs["ralim"] is None)):
+if (dargs["ralim"] is None):
     ra = np.mean(np.array([oi.sObjX for oi in objOis]))
-    ralim = [float(ra)-FIELD/2, float(ra)+FIELD/2] # get rid of numpy type so that yaml conversion works
+    dargs["ralim"] = [float(ra)-FIELD/2, float(ra)+FIELD/2] # get rid of numpy type so that yaml conversion works
+if (dargs["declim"] is None):
     dec = np.mean(np.array([oi.sObjY for oi in objOis]))
-    declim = [float(dec)-FIELD/2, float(dec)+FIELD/2]
-else:
-    ralim = [float(r) for r in dargs["ralim"].split(']')[0].split('[')[1].split(',')]
-    declim = [float(r) for r in dargs["declim"].split(']')[0].split('[')[1].split(',')]
-printinf("RA grid set to [{:.2f}, {:.2f}] with {:d} points".format(ralim[0], ralim[1], dargs["nra"]))
-printinf("DEC grid set to [{:.2f}, {:.2f}] with {:d} points".format(declim[0], declim[1], dargs["ndec"]))
+    dargs["declim"] = [float(dec)-FIELD/2, float(dec)+FIELD/2]
+printinf("RA grid set to [{:.2f}, {:.2f}] with {:d} points".format(dargs["ralim"][0], dargs["ralim"][1], dargs["nra"]))
+printinf("DEC grid set to [{:.2f}, {:.2f}] with {:d} points".format(dargs["declim"][0], dargs["declim"][1], dargs["ndec"]))
 
 if len(swapOis) > 0:
     printinf("At least one SWAP file detected. Setting phaseref_mode to SWAP.")
@@ -241,17 +239,15 @@ if phaseref_mode == "DF_SWAP":
         sObjX, sObjY = -oi.sObjX, -oi.sObjY
     else:
         sObjX, sObjY = oi.sObjX, oi.sObjY        
-    if ((dargs["ralim_swap"] is None) or (dargs["ralim_swap"] is None)):
-        ralim_swap = [sObjX-FIELD/2, sObjX+FIELD/2] # get rid of numpy type so that yaml conversion works
-        declim_swap = [sObjY-FIELD/2, sObjY+FIELD/2]
-    else:
-        ralim_swap = [float(r) for r in dargs["ralim_swap"].split(']')[0].split('[')[1].split(',')]
-        declim_swap = [float(r) for r in dargs["declim_swap"].split(']')[0].split('[')[1].split(',')]
-    printinf("RA grid set to [{:.2f}, {:.2f}] with {:d} points".format(ralim_swap[0], ralim_swap[1], dargs["nra_swap"]))
-    printinf("DEC grid set to [{:.2f}, {:.2f}] with {:d} points".format(declim_swap[0], declim_swap[1], dargs["ndec_swap"]))
+    if (dargs["ralim_swap"] is None):
+        dargs["ralim_swap"] = [sObjX-FIELD/2, sObjX+FIELD/2] # get rid of numpy type so that yaml conversion works
+    if (dargs["declim_swap"] is None):
+        dargs["declim_swap"] = [sObjY-FIELD/2, sObjY+FIELD/2]
+    printinf("RA grid set to [{:.2f}, {:.2f}] with {:d} points".format(dargs["ralim_swap"][0], dargs["ralim_swap"][1], dargs["nra_swap"]))
+    printinf("DEC grid set to [{:.2f}, {:.2f}] with {:d} points".format(dargs["declim_swap"][0], dargs["declim_swap"][1], dargs["ndec_swap"]))
 else:
-    ralim_swap = None
-    declim_swap = None    
+    dargs["ralim_swap"] = None
+    dargs["declim_swap"] = None    
     
 preduces = []
 for k in range(len(objOis)):
@@ -282,10 +278,10 @@ general = {"datadir": dargs["datadir"],
            "n_dec": int(dargs["ndec"]),
            "n_ra_swap": int(dargs["nra_swap"]),
            "n_dec_swap": int(dargs["ndec_swap"]),           
-           "ralim": ralim,
-           "declim": declim,
-           "ralim_swap": ralim_swap,
-           "declim_swap": declim_swap,           
+           "ralim": dargs["ralim"],
+           "declim": dargs["declim"],
+           "ralim_swap": dargs["ralim_swap"],
+           "declim_swap": dargs["declim_swap"],           
            "poly_order": int(dargs["poly_order"]),
            "star_diameter": float(dargs["star_diameter"]),
            "phaseref_arclength_threshold": float(dargs["phaseref_arclength_threshold"]),
