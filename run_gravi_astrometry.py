@@ -16,7 +16,8 @@ import os, sys
 from datetime import datetime
 from exogravity.utils import args_to_dict
 import numpy as np
-
+import glob
+from astropy.io import fits
 # import YML to write the yml file at the end
 try:
     import ruamel.yaml
@@ -24,13 +25,104 @@ try:
 except: # if ruamel not available, switch back to pyyaml, which does not handle comments properly
     import yaml
     RUAMEL = False
+# argparse for command line arguments
+import argparse
+
+# create the parser for command lines arguments
+parser = argparse.ArgumentParser(description=
+"""
+Extract astrometry from an GRAVITY dual-field observation, using a chi2 map approach
+""")
+
+# for the astrometry map
+parser.add_argument("--ralim", metavar=('MIN', 'MAX'), type=float, nargs=2, default=None,
+                    help="specify the RA range (in mas) over which to search for the astrometry. Default: fiber position +/- 30 mas (UTs) or +/- 120 mas (ATs).") 
+parser.add_argument("--declim", metavar=('MIN', 'MAX'), type=float, nargs=2, default=None, 
+                    help="specify the DEC range (in mas) over which to search for the astrometry. Default: fiber position +/- 30 mas (UTs) or +/- 120 mas (ATs).")  
+parser.add_argument("--nra", metavar="N", type=int, default=100,
+                    help="number of points over the RA range. Default: 100")  
+parser.add_argument("--ndec", metavar="N", type=int, default=100,
+                    help="number of points over the DEC range. Default: 100")    
+
+# for the astrometry map on the swap
+parser.add_argument("--ralim_swap", metavar=('MIN', 'MAX'), type=float, nargs=2, default=None,
+                    help="specify the RA range (in mas) over which to search for the astrometry of the swap. Default: fiber position +/- 30 mas (UTs) or +/- 120 mas (ATs).")     
+parser.add_argument("--declim_swap", metavar=('MIN', 'MAX'), type=float, nargs=2, default=None,
+                    help="specify the DEC range (in mas) over which to search for the astrometry. Default: fiber position +/- 30 mas (UTs) or +/- 120 mas (ATs).")    
+parser.add_argument("--nra_swap", metavar="N", type=int, default=100,
+                    help="number of points over the RA range for the swap. Default: 100")    
+parser.add_argument("--ndec_swap", metavar="N", type=int, default=100,
+                    help="number of points over the DEC range for the swap. Default: 100")    
+
+# whether to zoom
+parser.add_argument("--zoom", metavar="ZOOM_FACTOR", type=int, default=5,
+                    help="create an additional zoomed in version of the chi2 map around the best guess from the initial map. Default: factor 5")
+
+# some parameters related to how files are loaded
+parser.add_argument("--target", metavar="NAME", type=str, default = None,
+                    help="restrict the reduction to a particular target (from FITS header). Default: None")
+parser.add_argument("--swap_target", metavar="NAME", type=str, default = None,
+                    help="target name (from FITS header) for the binary swap calibration observation if off-axis mode. Default: None")
+parser.add_argument("--fiber_pos", metavar=("RA", "DEC"), type=int, nargs=2, default = None,
+                    help="restrict the reduction to a single fiber position (in mas). Default: all files are taken")
+
+parser.add_argument("--reduction", metavar="LEVEL", type=str, default = "astrored", choices=["astrored", "dualscivis"],
+                    help="the data reduction level to use. Default: astrored")
+parser.add_argument("--extension", metavar="EXT", type=int, default = 10, choices=[10, 11, 12],
+                    help="Which extension to use for the polarimetry. Default: 10 (combined)")
+parser.add_argument("--corr_met", metavar="METHOD", type=str, default = "drs", choices = ["drs", "sylvestre"],
+                    help="how to calculate the metrology correction for astrored files. can be can be 'sylvestre' or 'drs', or possibly 'none'. Default: drs")
+parser.add_argument("--corr_disp", metavar="METHOD", type=str, default = "drs", choices = ["drs", "sylvestre"],
+                    help="how to calculate the dispersion correction for astrored files. can be can be 'sylvestre' or 'drs', or possibly 'none'. Default: drs")
+
+# data filtering
+parser.add_argument("--phaseref_arclength_threshold", metavar="THRESHOLD", type=float, default = 5,
+                    help="remove all dit/baseline with an arclength of the phaseref polyfit larger this threshold. Default: 5")
+parser.add_argument("--ft_flux_threshold", metavar="THRESHOLD", type=float, default = 0.2,
+                    help="remove all dits/baselines with an ft flux below THRESH*MEAN(FT_FLUX_ON_STAR) (default 0.2)")
+parser.add_argument("--reflag", metavar="TRUE/FALSE", type=bool, default=False,
+                     help="if set, use the REFLAG table to filter bad datapoints. Requires running the scriot twice! Default: false")  # deprecated?
+
+# for the OPD calculations on baselines
+parser.add_argument("--nopd", type=int, default=100,
+                    help="DEPRECATED. Default: 100")    
+
+# how to deal with detrending and calibrations
+parser.add_argument("--poly_order", metavar="ORDER", type=int, default=4,
+                    help="order of the polynomial used to detrend the data (remove the stellar component in exoplanet observations). Default: 4")   
+parser.add_argument("--contrast_file", metavar="FILE", type=str, default=None,
+                    help="path to the contrast file (planet/star) to use as a model for the planet visibility amplitude. Default: Constant contrast")
+parser.add_argument("--star_diameter", metavar="DIAMETER", type=float, default = 0,
+                    help="the diameter of the central star (in mas, to scale the visibility amplitude). Default: 0 mas")
+parser.add_argument("--calib_strategy", metavar="STRATEGY", type=str, choices = ["nearest", "self", "all", "none"],
+                    help="""
+                    how to calculate the reference the coherent flux. 'all' for using all file. 'nearest' for using the two nearest available files.
+                    erence. 'none' to skip the calibration. 'self' to calibrate each file by itself.
+                    """)
+
+# switches for different behaviors
+parser.add_argument("--go_fast", metavar="EMPTY or TRUE/FALSE", type=bool, default=False, nargs="?", const=True,
+                    help="if set, average over DITs to accelerate calculations. Default: false")   
+parser.add_argument("--gradient", metavar="EMPTY or TRUE/FALSE", type=bool, default=True,  nargs="?", const=True,
+                     help="if set, improves the estimate of the location of chi2 minima by performing a gradient descent from the position on the map. Default: true")   
+parser.add_argument("--use_local", metavar="EMPTY or TRUE/FALSE", type=bool, default=False,  nargs="?", const=True,
+                     help="if set, uses the local minima will be instead of global ones. Useful when dealing with multiple close minimums. Default: false")   
+parser.add_argument("--noinv", metavar="EMPTY or TRUE/FALSE", type=bool, default=False,  nargs="?", const=True,
+                     help="if set, avoid inversion of the covariance matrix and replace it with a gaussian elimination approach. DEPRECATED. Default: false")  # deprecated?
+parser.add_argument("--save_residuals", metavar="EMPTY or TRUE/FALSE", type=bool, default=False,  nargs="?", const=True,
+                     help="if set, saves fit residuals as npy files for further inspection. mainly a DEBUG option. Default: false")
+
+# load arguments into a dictionnary
+args = parser.parse_args()
+dargs = vars(args) # to treat as a dictionnary
+
+#######################
+# START OF THE SCRIPT #
+#######################
 
 MSG_FORMAT = "[RUN_GRAVI_ASTROMETRY]: {}"
 
 # check which types of observations are present
-import glob
-from astropy.io import fits
-
 filenames = glob.glob("./*astroreduced.fits")
 # ignore files which are not dual-field
 filenames = [filename for filename in filenames if ("ESO INS SOBJ SWAP" in fits.open(filename)[0].header.keys())]
@@ -50,17 +142,19 @@ if len(not_swap_targets) > 0:
 else:
     not_swap_target = None
 
+import exogravity
+dargs["datadir"] = "./"
+# we'll put the output PDFs in the current folder, in a "reduced_astrometry" folder
+if not(os.path.isdir("./reduced_astrometry/")):
+    os.mkdir("./reduced_astrometry/")   
+dargs["figdir"] = "./reduced_astrometry/"
+exogravity.dargs = dargs
+
+if dargs["calib_strategy"] is None:
+    exogravity.dargs["calib_strategy"] = "nearest"
 
 # CASE 1: ON-AXIS
 if (swap_target is None):
-    # we assume the the data to reduce are in the current folder and we store this in exogravity
-    import exogravity
-    dargs = {"datadir": "./"}
-    dargs["nra"] = 100 
-    dargs["ndec"] = 100
-    dargs["zoom"] = 5
-    exogravity.dargs = dargs
-
     # call create_config to create the proper cfg dictionnary
     print(MSG_FORMAT.format("At {}: entering create_config script".format(datetime.utcnow())))
     from exogravity import create_config
@@ -72,15 +166,6 @@ if (swap_target is None):
     print(MSG_FORMAT.format("At {}: exiting create_phase_reference script".format(datetime.utcnow())))
 
     # now we can call the astrometry_reduce script
-    # For this, we'll update a few configuration parameters
-    exogravity.cfg["general"]["gofast"] = True # average the DITS in the file
-    exogravity.cfg["general"]["gradient"] = True # use a gradient descent to get a better estimate of the location of the chi2 minimum
-    exogravity.cfg["general"]["use_local"] = True # start descent from local minimu closests to global minimum
-    # we'll put the output PDFs in the current folder, in a "reduced_astrometry" folder
-    if not(os.path.isdir("./reduced_astrometry/")):
-        os.mkdir("./reduced_astrometry/")
-    exogravity.cfg["general"]["figdir"] = "./reduced_astrometry/"
-
     print(MSG_FORMAT.format("At {}: entering astrometry_reduce script".format(datetime.utcnow())))
     from exogravity import astrometry_reduce
     print(MSG_FORMAT.format("At {}: exiting astrometry_reduce script".format(datetime.utcnow())))
@@ -101,16 +186,6 @@ if (swap_target is None):
     
 # CASE 2: ON-AXIS WITH SWAP
 elif not(swap_target is None) and not(not_swap_target is None):
-    # we assume the the data to reduce are in the current folder and we store this in exogravity
-    import exogravity
-    dargs = args_to_dict(sys.argv)
-    dargs["datadir"] = "./"
-    dargs["swap_target"] = swap_target
-    dargs["nra"] = 100 
-    dargs["ndec"] = 100 
-
-    exogravity.dargs = dargs
-
     # call create_config to create the proper cfg dictionnary
     print(MSG_FORMAT.format("At {}: entering create_config script".format(datetime.utcnow())))
     from exogravity import create_config
@@ -118,14 +193,8 @@ elif not(swap_target is None) and not(not_swap_target is None):
 
     # now we can call the swap_reduce script
     # For this, we'll update a few configuration parameters
-    exogravity.cfg["general"]["gofast"] = True # average the DITS in the file
-    exogravity.cfg["general"]["gradient"] = True # use a gradient descent to get a better estimate of the location of the chi2 minimum
-    exogravity.cfg["general"]["use_local"] = True # start descent from local minimum closests to global minimum
-    exogravity.cfg["general"]["calib_strategy"] = "self" # start descent from local minimu closests to global minimum
-    # we'll put the output PDFs in the current folder, in a "reduced_astrometry" folder
-    if not(os.path.isdir("./reduced_astrometry/")):
-        os.mkdir("./reduced_astrometry/")
-    exogravity.cfg["general"]["figdir"] = "./reduced_astrometry/"
+    if dargs["calib_strategy"] is None:
+        exogravity.cfg["general"]["calib_strategy"] = "self" # start descent from local minimu closests to global minimum
     print(MSG_FORMAT.format("At {}: entering swap_reduce script".format(datetime.utcnow())))
     from exogravity import swap_reduce    
     print(MSG_FORMAT.format("At {}: exiting swap_reduce script".format(datetime.utcnow())))    
@@ -137,15 +206,8 @@ elif not(swap_target is None) and not(not_swap_target is None):
 
     # now we can call the astrometry_reduce script
     # For this, we'll update a few configuration parameters
-    exogravity.cfg["general"]["gofast"] = True # average the DITS in the file
-    exogravity.cfg["general"]["gradient"] = True # use a gradient descent to get a better estimate of the location of the chi2 minimum
-    exogravity.cfg["general"]["use_local"] = False # start descent from local minimu closests to global minimum
-    exogravity.cfg["general"]["calib_strategy"] = "star" # start descent from local minimu closests to global minimum    
-    # we'll put the output PDFs in the current folder, in a "reduced_astrometry" folder
-    if not(os.path.isdir("./reduced_astrometry/")):
-        os.mkdir("./reduced_astrometry/")
-    exogravity.cfg["general"]["figdir"] = "./reduced_astrometry/"
-
+    if dargs["calib_strategy"] is None:
+        exogravity.cfg["general"]["calib_strategy"] = "star" # start descent from local minimu closests to global minimum    
     print(MSG_FORMAT.format("At {}: entering astrometry_reduce script".format(datetime.utcnow())))
     from exogravity import astrometry_reduce
     print(MSG_FORMAT.format("At {}: exiting astrometry_reduce script".format(datetime.utcnow())))
@@ -166,14 +228,6 @@ elif not(swap_target is None) and not(not_swap_target is None):
     
 # CASE 3: PURE SWAP
 elif not(swap_target is None) and (not_swap_target is None):
-    
-    import exogravity
-    dargs = args_to_dict(sys.argv)
-    dargs["datadir"] = "./"
-    dargs["swap_target"] = swap_target
-
-    exogravity.dargs = dargs
-
     # call create_config to create the proper cfg dictionnary
     print(MSG_FORMAT.format("At {}: entering create_config script".format(datetime.utcnow())))
     from exogravity import create_config
@@ -181,14 +235,8 @@ elif not(swap_target is None) and (not_swap_target is None):
 
     # now we can call the swap_reduce script
     # For this, we'll update a few configuration parameters
-    exogravity.cfg["general"]["gofast"] = True # average the DITS in the file
-    exogravity.cfg["general"]["gradient"] = True # use a gradient descent to get a better estimate of the location of the chi2 minimum
-    exogravity.cfg["general"]["use_local"] = False # start descent from local minimu closests to global minimum
-    exogravity.cfg["general"]["calib_strategy"] = "self" # start descent from local minimu closests to global minimum
-    # we'll put the output PDFs in the current folder, in a "reduced_astrometry" folder
-    if not(os.path.isdir("./reduced_astrometry/")):
-        os.mkdir("./reduced_astrometry/")
-    exogravity.cfg["general"]["figdir"] = "./reduced_astrometry/"
+    if dargs["calib_strategy"] is None:
+        exogravity.cfg["general"]["calib_strategy"] = "self" # start descent from local minimu closests to global minimum
     print(MSG_FORMAT.format("At {}: entering swap_reduce script".format(datetime.utcnow())))
     from exogravity import swap_reduce    
     print(MSG_FORMAT.format("At {}: exiting swap_reduce script".format(datetime.utcnow())))

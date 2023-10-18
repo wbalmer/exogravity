@@ -74,7 +74,8 @@ parser.add_argument("--ndec_swap", metavar="N", type=int, default=50,
                     help="number of points over the DEC range for the swap. Default: 50")    
 
 # whether to zoom
-parser.add_argument("--zoom", metavar="ZOOM_FACTOR", type=int, help="Create an additional zoomed in version of the chi2 map around the best guess from the initial map. Default: No zoom", default = 0)
+parser.add_argument("--zoom", metavar="ZOOM_FACTOR", type=int, 
+                    help="create an additional zoomed in version of the chi2 map around the best guess from the initial map. Default: No zoom", default = 0)
 
 # some parameters related to how files are loaded
 parser.add_argument("--target", metavar="NAME", type=str, default = None,

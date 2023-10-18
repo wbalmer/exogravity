@@ -6,21 +6,8 @@ This script is part of the exoGravity data reduction package.
 The swap_reduce script is used to extract the astrometry of a reference binary, which is used to
 calculate the metrology zero point (phase reference) when observing in dual-field/off-axis
 
-Args:
-  config_file (str): path to the YAML configuration file. Only used to retrieve the path to the SWAP files of the observation. 
-  ralim (range): specify the RA range (in mas) over which to search for the astrometry: Example: ralim=[142,146]
-  declim (range): same as ralim, for declination
-  nra, ndec (int, optional): number of points over the RA and DEC range (the more points, the longer the calculation). Default is 100.
-  gofast (bool, optional): if set, average over DITs to accelerate calculations (Usage: --gofast, or gofast=True)
-
-Example:
-  python swap_reduce config_file=full/path/to/yourconfig.yml ralim=[800,850] declim=[432,482] --gofast --noinv
-
 Authors:
   M. Nowak, and the exoGravity team.
-
-Version:
-  xx.xx
 """
 
 # standard imports
@@ -43,24 +30,54 @@ except: # if ruamel not available, switch back to pyyaml, which does not handle 
 # other stuff
 import scipy.optimize
 import itertools
+# argparse for command line arguments
+import argparse
 
-# arg should be the path to the config yml file    
-REQUIRED_ARGS = ["config_file"]
+# create the parser for command lines arguments
+parser = argparse.ArgumentParser(description=
+"""
+Extract astrometry from a GRAVITY SWAP observation 
+""")
+
+# required arguments are the path to the folder containing the data, and the path to the config yml file to write 
+parser.add_argument('config_file', type=str, help="the path the to YAML configuration file.")
+
+# some elements from the config file can be overridden with command line arguments
+parser.add_argument("--figdir", metavar="DIR", type=str, default=argparse.SUPPRESS,
+                    help="name of a directory where to store the output PDF files [overrides value from yml file]")   
+
+parser.add_argument("--go_fast", usage="[..]", metavar="EMPTY or TRUE/FALSE", type=bool, nargs="?", default=argparse.SUPPRESS, const = True,
+                    help="if set, average over DITs to accelerate calculations. [overrides value from yml file]")   
+
+parser.add_argument("--gradient", metavar="EMPTY or TRUE/FALSE", type=bool, default=argparse.SUPPRESS, nargs="?", const = True,
+                     help="if set, improves the estimate of the location of chi2 minima by performing a gradient descent from the position on the map. [overrides value from yml file]")   
+
+parser.add_argument("--use_local", metavar="EMPTY or TRUE/FALSE", type=bool, default=argparse.SUPPRESS, nargs="?", const = True,
+                     help="if set, uses the local minima will be instead of global ones. Useful when dealing with multiple close minimums. [overrides value from yml file]")  
+ 
+parser.add_argument("--save_residuals", metavar="EMPTY or TRUE/FALSE", type=bool, default=argparse.SUPPRESS, nargs="?", const = True,
+                     help="if set, saves fit residuals as npy files for further inspection. mainly a DEBUG option. [overrides value from yml file]")
+
+# for the astrometry map
+parser.add_argument("--ralim_swap", metavar=('MIN', 'MAX'), type=float, nargs=2, default=argparse.SUPPRESS,
+                    help="specify the RA range (in mas) over which to search for the astrometry of the swap. [overrides value from yml file]") 
+parser.add_argument("--declim_swap", metavar=('MIN', 'MAX'), type=float, nargs=2, default=argparse.SUPPRESS,
+                    help="specify the DEC range (in mas) over which to search for the astrometry of the swap. [overrides value from yml file]")  
+parser.add_argument("--nra_swap", metavar="N", type=int, default=argparse.SUPPRESS,
+                    help="number of points over the RA range of the swap. [overrides value from yml file]")  
+parser.add_argument("--ndec_swap", metavar="N", type=int, default=argparse.SUPPRESS,
+                    help="number of points over the DEC range of the swap. [overrides value from yml file]")    
+
+# whether to zoom
+parser.add_argument("--zoom", metavar="ZOOM_FACTOR", type=int, default=argparse.SUPPRESS,
+                    help="create an additional zoomed in version of the chi2 map around the best guess from the initial map.[overrides value from yml file]")
+
 
 # IF BEING RUN AS A SCRIPT, LOAD COMMAND LINE ARGUMENTS
 if __name__ == "__main__":    
     # load arguments into a dictionnary
-    dargs = args_to_dict(sys.argv)
-
-    # if user asks for help, print the doc and exit
-    if "help" in dargs.keys():
-        print(__doc__)
-        sys.exit()
-
-    # make sure the required arguments for this script are all here
-    for req in REQUIRED_ARGS:
-        if not(req in dargs.keys()):
-            printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
+    args = parser.parse_args()
+    dargs = vars(args) # to treat as a dictionnary
 
     CONFIG_FILE = dargs["config_file"]
     if not(os.path.isfile(CONFIG_FILE)):
@@ -72,29 +89,10 @@ if __name__ == "__main__":
     else:
         cfg = yaml.safe_load(open(CONFIG_FILE, "r"))
 
-    # OVERWRITE SOME CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
-    if "gofast" in dargs.keys():
-        cfg["general"]["gofast"] = (dargs["gofast"].lower()=="true") # bypass value from config file
-
-    if "gradient" in dargs.keys():
-        cfg["general"]["gradient"] = (dargs["gradient"].lower()=="true") # bypass value from config file
-        
-    if "figdir" in dargs.keys():
-        cfg["general"]["figdir"] = dargs["figdir"] # bypass value from config file        
-    
-    if "ralim" in dargs.keys():
-        cfg["general"]["ralim"] = [float(dummy) for dummy in dargs["ralim"].replace("[", "").replace("]", "").split(",")]
-        
-    if "nra" in dargs.keys():
-        cfg["general"]["n_ra"] = int(dargs["nra"])
-        
-    if "declim" in dargs.keys():
-        cfg["general"]["declim"] = [float(dummy) for dummy in dargs["declim"].replace("[", "").replace("]", "").split(",")]
-        
-    if "ndec" in dargs.keys():
-        cfg["general"]["n_dec"] = int(dargs["ndec"])
-
-        
+    # override some values with command line arguments
+    for key in dargs:
+        if key in cfg["general"]:
+            cfg["general"][key] = dargs[key]
 
 # IF THIS FILE IS RUNNING AS A MODULE, WE WILL TAKE CONFIGURATION FILE FROM THE PARENT MODULE
 if __name__ != "__main__":
@@ -114,7 +112,7 @@ EXTENSION = cfg["general"]["extension"]
 REDUCTION = cfg["general"]["reduction"]
 GRADIENT = cfg["general"]["gradient"]
 FIGDIR = cfg["general"]["figdir"]
-GO_FAST = cfg["general"]["gofast"]
+GO_FAST = cfg["general"]["go_fast"]
 
 printinf("RA grid set to [{:.2f}, {:.2f}] with {:d} points".format(RA_LIM[0], RA_LIM[1], N_RA))
 printinf("DEC grid set to [{:.2f}, {:.2f}] with {:d} points".format(DEC_LIM[0], DEC_LIM[1], N_DEC))

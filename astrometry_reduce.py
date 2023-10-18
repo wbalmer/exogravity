@@ -38,7 +38,7 @@ import argparse
 # create the parser for command lines arguments
 parser = argparse.ArgumentParser(description=
 """
-Extract astrometry from an GRAVITY dual-field observation, using a chi2 map approach
+Extract astrometry from an GRAVITY dual-field observation, using a chi2 map approach and a precalculated phase reference
 """)
 
 # required arguments are the path to the folder containing the data, and the path to the config yml file to write 
@@ -72,7 +72,7 @@ parser.add_argument("--ndec", metavar="N", type=int, default=argparse.SUPPRESS,
 
 # whether to zoom
 parser.add_argument("--zoom", metavar="ZOOM_FACTOR", type=int, default=argparse.SUPPRESS,
-                    help="Create an additional zoomed in version of the chi2 map around the best guess from the initial map.[overrides value from yml file]")
+                    help="create an additional zoomed in version of the chi2 map around the best guess from the initial map.[overrides value from yml file]")
 
 
 # IF BEING RUN AS A SCRIPT, LOAD COMMAND LINE ARGUMENTS
