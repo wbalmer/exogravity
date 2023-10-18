@@ -49,9 +49,9 @@ For a dual-field off-axis with a swap calibrator:
 - astrometry_reduced.py 
 - spectrum_reduce.py 
 
-For a quick astrometric measurement, it is also possible to use the run_gravi_astrometry.py script in the directory containing the astroreduced fits file. This script will try to guess which observing strategy was used and will be perform the correct sequence with some default parameters. 
+For a quick astrometric measurement, it is also possible to use the `run_gravi_astrometry.py` script in the directory containing the astroreduced fits file. This script will try to guess which observing strategy was used and will be perform the correct sequence with some default parameters. 
 
-All options are documented in the help command of the scripts (see e.g. create_config.py -h)
+All options are documented in the help command of the scripts (see e.g. `create_config.py -h`)
 
 ### Tutorial data
 
