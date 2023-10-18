@@ -7,17 +7,8 @@ The create_phase_reference script is used to extract the phase reference from th
 an exoplanet observation made with GRAVITY, in dual-field mode.
 To use this script, you need to call it with a configuration file, see example below.
 
-Args:
-  config_file (str): the path the to YAML configuration file.
-
-Example:
-  python create_phase_reference config_file=full/path/to/yourconfig.yml
-
 Authors:
   M. Nowak, and the exoGravity team.
-
-Version:
-  xx.xx
 """
 
 # BASIC IMPORTS
@@ -36,24 +27,27 @@ try:
 except: # if ruamel not available, switch back to pyyaml, which does not handle comments properly
     import yaml
     RUAMEL = False
+# argparse for command line arguments
+import argparse
 
-# arg should be the path to the config yml file    
-REQUIRED_ARGS = ["config_file"]
+# create the parser for command lines arguments
+parser = argparse.ArgumentParser(description=
+"""
+Calculate the phase reference which needs to be subtracted to the phase of the visibilities in dual field
+""")
+
+# required arguments are the path to the folder containing the data, and the path to the config yml file to write 
+parser.add_argument('config_file', type=str, help="the path the to YAML configuration file.")
+
+# some elements from the config file can be overridden with command line arguments
+parser.add_argument("--figdir", metavar="DIR", type=str, default=argparse.SUPPRESS,
+                    help="name of a directory where to store the output PDF files [overrides value from yml file]")   
 
 # IF BEING RUN AS A SCRIPT, LOAD COMMAND LINE ARGUMENTS
 if __name__ == "__main__":    
     # load arguments into a dictionnary
-    dargs = args_to_dict(sys.argv)
-
-    # if user asks for help, print the doc and exit
-    if "help" in dargs.keys():
-        print(__doc__)
-        sys.exit()
-
-    # make sure the required arguments for this script are all here
-    for req in REQUIRED_ARGS:
-        if not(req in dargs.keys()):
-            printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
+    args = parser.parse_args()
+    dargs = vars(args) # to treat as a dictionnary
 
     CONFIG_FILE = dargs["config_file"]
     if not(os.path.isfile(CONFIG_FILE)):
@@ -65,12 +59,11 @@ if __name__ == "__main__":
     else:
         cfg = yaml.safe_load(open(CONFIG_FILE, "r"))
 
-    # OVERWRITE SOME OF THE CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
-    if "figdir" in dargs.keys():
-        FIGDIR = dargs["figdir"] # bypass value from config file
+    # override some values with command line arguments
+    for key in dargs:
+        if key in cfg["general"]:
+            cfg["general"][key] = dargs[key]
 
-    if not("save_residuals") in dargs.keys():
-        dargs['save_residuals'] = False
 
 # IF THIS FILE IS RUNNING AS A MODULE, WE WILL TAKE CONFIGURATION FILE FROM THE PARENT MODULE
 if __name__ != "__main__":

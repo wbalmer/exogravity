@@ -6,20 +6,10 @@ This script is part of the exoGravity data reduction package.
 The spectrum_reduce script is used to extract the contrast spectrum from an exoplanet observation made with GRAVITY, in dual-field mode.
 To use this script, you need to call it with a configuration file, and an output directory, see example below.
 
-Args:
-  config_file (str): the path the to YAML configuration file.
-  gofast (bool, optional): if set, average over DITs to accelerate calculations (Usage: --gofast, or gofast=True, or goFast=False). This will bypass
-                           the value contained in the YAML file.
-
-Example:
-  python spectum_reduce config_file=full/path/to/yourconfig.yml 
-
 Authors:
   M. Nowak, and the exoGravity team.
-
-Version:
-  xx.xx
 """
+
 # BASIC IMPORTS
 import numpy as np
 import scipy.sparse, scipy.sparse.linalg
@@ -42,37 +32,62 @@ except: # if ruamel not available, switch back to pyyaml, which does not handle 
     import yaml
     RUAMEL = False
 import sys, os
+# argparse for command line arguments
+import argparse
 
-### GLOBALS ###
-SPECTRUM_FILENAME = "spectrum.fits"
-###
+# create the parser for command lines arguments
+parser = argparse.ArgumentParser(description=
+"""
+Extract contrast spectrum from an exoGravity observation
+""")
 
-# load aguments into a dictionnary
-dargs = args_to_dict(sys.argv)
+# required arguments are the path to the folder containing the data, and the path to the config yml file to write 
+parser.add_argument('config_file', type=str, help="the path the to YAML configuration file.")
 
-if "help" in dargs.keys():
-    print(__doc__)
-    stop()
+# required arguments are the path to the folder containing the data, and the path to the config yml file to write 
+parser.add_argument('output', type=str, help="the name of output fits file where to save the spectrum.")
 
-# arg should be the path to the config yal file    
-REQUIRED_ARGS = ["config_file"]
-for req in REQUIRED_ARGS:
-    if not(req in dargs.keys()):
-        printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
-        stop()
+# some elements from the config file can be overridden with command line arguments
+parser.add_argument("--figdir", metavar="DIR", type=str, default=argparse.SUPPRESS,
+                    help="name of a directory where to store the output PDF files [overrides value from yml file]")   
 
-CONFIG_FILE = dargs["config_file"]
-if not(os.path.isfile(CONFIG_FILE)):
-    raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
+parser.add_argument("--go_fast", metavar="EMPTY or TRUE/FALSE", type=bool, default=argparse.SUPPRESS, nargs="?", const = True,
+                    help="if set, average over DITs to accelerate calculations. [overrides value from yml file]")   
 
-if not("save_residuals") in dargs.keys():
-    dargs['save_residuals'] = False
+parser.add_argument("--save_residuals", metavar="EMPTY or TRUE/FALSE", type=bool, default=argparse.SUPPRESS, nargs="?", const = True,
+                     help="if set, saves fit residuals as npy files for further inspection. mainly a DEBUG option. [overrides value from yml file]")
 
-# READ THE CONFIGURATION FILE
-if RUAMEL:
-    cfg = ruamel.yaml.load(open(CONFIG_FILE, "r"), Loader=ruamel.yaml.RoundTripLoader)
-else:
-    cfg = yaml.safe_load(open(CONFIG_FILE, "r"))
+# IF BEING RUN AS A SCRIPT, LOAD COMMAND LINE ARGUMENTS
+if __name__ == "__main__":   
+    # load arguments into a dictionnary
+    args = parser.parse_args()
+    dargs = vars(args) # to treat as a dictionnary
+
+    CONFIG_FILE = dargs["config_file"]
+    if not(os.path.isfile(CONFIG_FILE)):
+        raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
+
+    # READ THE CONFIGURATION FILE
+    if RUAMEL:
+        cfg = ruamel.yaml.load(open(CONFIG_FILE, "r"), Loader=ruamel.yaml.RoundTripLoader)
+    else:
+        cfg = yaml.safe_load(open(CONFIG_FILE, "r"))
+
+    # override some values with command line arguments
+    for key in dargs:
+        if key in cfg["general"]:
+            cfg["general"][key] = dargs[key]
+
+
+# IF THIS FILE IS RUNNING AS A MODULE, WE WILL TAKE CONFIGURATION FILE FROM THE PARENT MODULE
+if __name__ != "__main__":
+    import exogravity
+    cfg = exogravity.cfg
+
+#######################
+# START OF THE SCRIPT #
+#######################
+SPECTRUM_FILENAME = dargs["output"]
 DATA_DIR = cfg["general"]["datadir"]
 PHASEREF_MODE = cfg["general"]["phaseref_mode"]
 CONTRAST_FILE = cfg["general"]["contrast_file"]
@@ -89,7 +104,7 @@ elif cfg["swap_ois"] is None:
     SWAP_FILES = []
 else:
     SWAP_FILES = [DATA_DIR+cfg["swap_ois"][k]["filename"] for k in cfg["swap_ois"].keys()]
-STAR_ORDER = cfg["general"]["star_order"]
+POLY_ORDER = cfg["general"]["poly_order"]
 STAR_DIAMETER = cfg["general"]["star_diameter"]
 EXTENSION = cfg["general"]["extension"]
 REDUCTION = cfg["general"]["reduction"]
@@ -238,14 +253,14 @@ for k in range(len(objOis)):
     printinf("Create projector matrices (p_matrices) ({}/{})".format(k+1, len(objOis)))
     # calculate the projector
     wav = oi.wav*1e6
-    vectors = np.zeros([STAR_ORDER+1, oi.nwav], 'complex64')
+    vectors = np.zeros([POLY_ORDER+1, oi.nwav], 'complex64')
     thisVisRef = visRefs[k]
     thisAmpRef = np.abs(thisVisRef)
     oi.visOi.p_matrices = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav, oi.nwav], 'complex64')
     P = np.zeros([oi.visOi.nchannel, oi.nwav, oi.nwav], 'complex64')
     for dit in range(oi.visOi.ndit): # the loop of DIT number is necessary because of bad points mgmt (bad_indices depends on dit)
         for c in range(oi.visOi.nchannel):
-            for j in range(STAR_ORDER+1):
+            for j in range(POLY_ORDER+1):
                 vectors[j, :] = np.abs(thisAmpRef[c, :])*(wav-np.mean(wav))**j # pourquoi ampRef et pas visRef ?
             bad_indices = np.where(oi.visOi.flag[dit, c, :])
             vectors[:, bad_indices] = 0

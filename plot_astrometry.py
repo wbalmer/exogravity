@@ -5,24 +5,8 @@
 This script is part of the exoGravity data reduction package.
 The plot_spectrum is used to display the astrometric solution from a processed YAML file
 
-Args:
-  file: the path the YAML configuration file
-  noerr (bool, optional): if set, do not show the error bars on the plot
-  notitle (bool, optional): do not put the name of the file in the title
-  cov (bool, optional): if set, the general covariance will no be displayed on the plot
-  noplot: if set, just output the result in the terminal, and do not plot anything
-  labels: if set, add label to the individual points
-  notitle: if set, to not add the file name in title
-
-Example:
-  python plot_astrometry.py file=full/path/to/config.yaml --noerr 
-  python plot_astrometry.py file=full/path/to/config.yaml --noplot 
-
 Authors:
   M. Nowak, and the exoGravity team.
-
-Version:
-  xx.xx
 """
 import numpy as np
 from cleanGravity.utils import loadFitsSpectrum
@@ -39,34 +23,38 @@ except: # if ruamel not available, switch back to pyyaml, which does not handle 
 import sys, os
 import scipy
 
-# load aguments into a dictionnary
-dargs = args_to_dict(sys.argv)
+# argparse for command line arguments
+import argparse
 
-if "help" in dargs.keys():
-    print(__doc__)
+# create the parser for command lines arguments
+parser = argparse.ArgumentParser(description=
+"""
+Make a quick plot of an exoGRAVITY spectrum fits file
+""")
 
-if not("notitle" in dargs):
-    dargs["notitle"] = False
-if not("noerr" in dargs):
-    dargs["noerr"] = False
-if not("noplot" in dargs):
-    dargs["noplot"] = False    
-if not("cov" in dargs):
-    dargs["cov"] = False        
-if not("labels" in dargs):
-    dargs["labels"] = False
-if not("notitle" in dargs):
-    dargs["notile"] = False
-if not("formal_errors" in dargs):
-    dargs["formal_errors"] = False                
+# required arguments are the path to the folder containing the data, and the path to the config yml file to write 
+parser.add_argument('config_file', type=str, help="the path the to YAML configuration file with the normalization parameters.")
 
-# arg should be the path to the spectrum
-REQUIRED_ARGS = ["config_file"]
-for req in REQUIRED_ARGS:
-    if not(req in dargs.keys()):
-        printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
-        stop()
+# optional arguments
+parser.add_argument('--notitle', metavar="EMPTY or TRUE/FALSE", type=bool, default=False, nargs="?", const = True,
+                    help="if set, remove the title from the figure. Default: false")
 
+parser.add_argument('--noerr', metavar="EMPTY or TRUE/FALSE", type=bool, default = True, nargs="?", const = True,
+                    help="if set, do no draw and plot random spectra from the covariance matrix. Default: true")
+
+parser.add_argument('--noplot', metavar="EMPTY or TRUE/FALSE", type=bool, default = False, nargs="?", const = True,
+                    help="if set, just print the astrometry, without a plot. Default: false")
+
+parser.add_argument('--formal_errors', metavar="EMPTY or TRUE/FALSE", type=bool, default = True, nargs="?", const = True,
+                    help="if set, also plots the formal errors derived from the chi2 values. Default: true")
+
+parser.add_argument('--labels', metavar="EMPTY or TRUE/FALSE", type=bool, default = False, nargs="?", const = True,
+                    help="if set, labels the individual points on the plot. Default: false")
+
+# load arguments into a dictionnary
+args = parser.parse_args()
+dargs = vars(args) # to treat as a dictionnary
+         
 CONFIG_FILE = dargs['config_file']
 
 # READ THE CONFIGURATION FILE
@@ -76,58 +64,6 @@ else:
     cfg = yaml.safe_load(open(CONFIG_FILE, "r"))
 
 # extract the astrometric solutions
-
-# DEPRECATED SINCE USING GRADIENT DESCENT IN ASTROMETRY_REDUCE
-"""
-CHI2MAP_FOUND = False
-if not(cfg["general"]["figdir"] is None):
-    try:
-        hdul = fits.open(cfg["general"]["figdir"]+"/chi2Maps.fits")
-        CHI2MAP_FOUND = True    
-        printinf("File chi2Maps.fits found in FIGIDR. The astrometry will be extracted from the chi2Maps.")
-    except FileNotFoundError:
-        printwar("No chi2Maps.fits found in FIGIDR. The astrometry will be extracted from the YML file.")    
-
-if CHI2MAP_FOUND:
-    hdu = hdul[0]
-    chi2Maps = hdu.data
-    n = np.shape(chi2Maps)[1]
-    nfiles = np.shape(chi2Maps)[0]
-    raValues = hdu.header["CRVAL1"] + hdu.header["CDELT1"]*np.array(range(n))
-    decValues = hdu.header["CRVAL2"] + hdu.header["CDELT2"]*np.array(range(n))
-    ra = np.zeros(nfiles)
-    dec = np.zeros(nfiles)
-    if dargs["formal_errors"]:    
-        ra_var = np.zeros(nfiles)
-        dec_var = np.zeros(nfiles)
-        rho = np.zeros(nfiles)                
-    for k in range(nfiles):
-        chi2Map = chi2Maps[k, :, :].T
-        ind = np.where(chi2Map == np.min(chi2Map))
-        i, j = ind[0][0], ind[1][0]
-        ra[k] = raValues[i]
-        dec[k] = decValues[j]
-        if dargs["formal_errors"]:            
-            # get errors from chi2Map
-            dra = raValues[1]-raValues[0]
-            ddec = decValues[1]-decValues[0]            
-            d2chidra2 = (chi2Map[i+1, j]+chi2Map[i-1, j]-2*chi2Map[i, j])/dra**2
-            d2chiddec2 = (chi2Map[i, j+1]+chi2Map[i, j-1]-2*chi2Map[i, j])/ddec**2
-            d2chidraddec = (chi2Map[i, j+1]+chi2Map[i, j-1]-2*chi2Map[i, j]-d2chidra2*dra**2-d2chiddec2*ddec**2)/dra/ddec
-            ra_var[k] = (200*2.3)/(d2chidra2)
-            dec_var[k] = (200*2.3)/(d2chiddec2)
-            rho[k] = (200*2.3)/(d2chidraddec)/ra_var[k]**0.5/dec_var[k]**0.5
-
-else:
-    try:
-        ra = [preduce[list(preduce.keys())[0]]["astrometric_solution"][0] for preduce in cfg["general"]["reduce_planets"]]
-        dec = [preduce[list(preduce.keys())[0]]["astrometric_solution"][1] for preduce in cfg["general"]["reduce_planets"]]
-        printinf("Astrometry extracted from config file {}".format(CONFIG_FILE))
-    except:
-        printinf("Please run the script 'astrometryReduce' first.")    
-        printerr("Could not extract the astrometry from the config file {}".format(CONFIG_FILE))    
-"""
-
 try:
     ra = [preduce[list(preduce.keys())[0]]["astrometric_solution"][0] for preduce in cfg["general"]["reduce_planets"]]
     dec = [preduce[list(preduce.keys())[0]]["astrometric_solution"][1] for preduce in cfg["general"]["reduce_planets"]]
@@ -170,8 +106,8 @@ ax.plot([ra_best], [dec_best], 'ok')
 
 val, vec = np.linalg.eig(cov_mat)
 
-e1Large = matplotlib.patches.Ellipse((ra_best, dec_best), nfiles**0.5*2*val[0]**0.5, nfiles**0.5*2*val[1]**0.5, angle = np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color = 'gray', alpha=0.3, linewidth=2, linestyle='--')
-e2Large = matplotlib.patches.Ellipse((ra_best, dec_best), nfiles**0.5*3*2*val[0]**0.5, nfiles**0.5*3*2*val[1]**0.5, angle = np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color='gray', alpha=0.3, linewidth=2)
+e1Large = matplotlib.patches.Ellipse((ra_best, dec_best), 2*nfiles**0.5*val[0]**0.5, 2*nfiles**0.5*val[1]**0.5, angle = np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color = 'gray', alpha=0.3, linewidth=2, linestyle='--')
+e2Large = matplotlib.patches.Ellipse((ra_best, dec_best), 3*2*nfiles**0.5*val[0]**0.5, 3*2*nfiles**0.5*val[1]**0.5, angle = np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color='gray', alpha=0.3, linewidth=2)
 
 e1 = matplotlib.patches.Ellipse((ra_best, dec_best), 2*val[0]**0.5, 2*val[1]**0.5, angle = np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color = 'k', linewidth=2, linestyle = '--')
 e2 = matplotlib.patches.Ellipse((ra_best, dec_best), 3*2*val[0]**0.5, 3*2*val[1]**0.5, angle = np.arctan2(vec[0, 1], -vec[1, 1])/np.pi*180.0, fill=False, color = 'k', linewidth=2)

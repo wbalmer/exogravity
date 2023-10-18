@@ -6,18 +6,8 @@ This script is part of the exoGravity data reduction package.
 The normalize_spectrum_species is used to normalize a spectrum using a model spectrum from species
 using a given stellar model.
 
-Args:
-  config_file: the path the yml configuraiton file which should contain all calibration parameters
-  file: the path to the fits file containing the spectrum to normalize
-
-Example:
-  python normalize_spectrum_species file=full/path/to/spectrum.fits config_file=fill/path/to/config.yml
-
 Authors:
   M. Nowak, and the exoGravity team.
-
-Version:
-  xx.xx
 """
 import numpy as np
 from astropy.io import fits
@@ -39,22 +29,27 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages        
 import species
 from PyPDF2 import PdfFileReader, PdfFileWriter
+# argparse for command line arguments
+import argparse
+
+# create the parser for command lines arguments
+parser = argparse.ArgumentParser(description=
+"""
+Normalize a GRAVITY spectrum using a model from species.
+""")
+
+# required arguments are the path to the folder containing the data, and the path to the config yml file to write 
+parser.add_argument('file', type=str, help="the path the fits file containing the spectrum to normalize.")
+
+# required arguments are the path to the folder containing the data, and the path to the config yml file to write 
+parser.add_argument('config_file', type=str, help="the path the to YAML configuration file with the normalization parameters.")
+
+# load arguments into a dictionnary
+args = parser.parse_args()
+dargs = vars(args) # to treat as a dictionnary
 
 whereami = os.path.realpath(__file__).replace("normalize_spectrum_species.py", "")
 
-# load aguments into a dictionnary
-dargs = args_to_dict(sys.argv)
-
-if "help" in dargs.keys():
-    print(__doc__)
-    stop()
-
-# arg should be the path to the spectrum
-REQUIRED_ARGS = ["file", "config_file"]
-for req in REQUIRED_ARGS:
-    if not(req in dargs.keys()):
-        printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
-        stop()
 
 CONFIG_FILE = dargs["config_file"]
 if not(os.path.isfile(CONFIG_FILE)):
@@ -64,14 +59,6 @@ if RUAMEL:
     cfg = ruamel.yaml.load(open(CONFIG_FILE, "r"), Loader=ruamel.yaml.RoundTripLoader)
 else:
     cfg = yaml.safe_load(open(CONFIG_FILE, "r"))
-    
-if not("notitle" in dargs):
-    dargs["notitle"] = False
-if not("noerr" in dargs):
-    dargs["noerr"] = False
-if not("cov" in dargs):
-    dargs["cov"] = False        
-
     
 FIGDIR = cfg["general"]["figdir"]
     

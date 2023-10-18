@@ -5,22 +5,8 @@
 This script is part of the exoGravity data reduction package.
 The plot_spectrum is used to display the content of a spectrum FITS file
 
-Args:
-  file: the path the to fits file to plot.
-  fig (int, optional): number of the figure where to plot. If not given, a new one is created
-  noerr (bool, optional): if set, do not show the error bars on the plot
-  notitle (bool, optional): do not put the name of the file in the title
-  cov (bool, optional): if set, the covariance matrices will also be displayed as image
-  color (str, optional): the color to use. Default is orange
-
-Example:
-  python plot_spectrum file=full/path/to/spectrum.fits --cov
-
 Authors:
   M. Nowak, and the exoGravity team.
-
-Version:
-  xx.xx
 """
 import numpy as np
 import matplotlib.pyplot as plt
@@ -28,33 +14,42 @@ from cleanGravity.utils import loadFitsSpectrum
 from utils import *
 import sys
 import os
+# argparse for command line arguments
+import argparse
+
+# create the parser for command lines arguments
+parser = argparse.ArgumentParser(description=
+"""
+Make a quick plot of an exoGRAVITY spectrum fits file
+""")
+
+# required arguments are the path to the folder containing the data, and the path to the config yml file to write 
+parser.add_argument('file', type=str, help="fits file containing the spectrum to plot.")
+
+# optional arguments
+parser.add_argument('--notitle', metavar="EMPTY or TRUE/FALSE", type=bool, default=False, nargs="?", const = True,
+                    help="if set, remove the title from the figure. Default: false")
+
+parser.add_argument('--noerr', metavar="EMPTY or TRUE/FALSE", type=bool, default = True, nargs="?", const = True,
+                    help="if set, do no draw and plot random spectra from the covariance matrix. Default: true")
+
+parser.add_argument('--cov', metavar="EMPTY or TRUE/FALSE", type=bool, default = False, nargs="?", const = True,
+                    help="if set, also plot the covariance matrix. Default: false")
+
+parser.add_argument('--fig', type=int, 
+                    help="figure number for the plot. Default: create a new figure")
+
+parser.add_argument('--color', type=str, default = "orange",
+                    help="color for the plot (must be a valid python color string). Default: orange")
+
+# load arguments into a dictionnary
+args = parser.parse_args()
+dargs = vars(args) # to treat as a dictionnary
 
 whereami = os.path.realpath(__file__).replace("plot_spectrum.py", "")
 
 # load aguments into a dictionnary
 dargs = args_to_dict(sys.argv)
-
-if "help" in dargs.keys():
-    print(__doc__)
-    stop()
-
-if not("notitle" in dargs):
-    dargs["notitle"] = False
-if not("noerr" in dargs):
-    dargs["noerr"] = False
-if not("cov" in dargs):
-    dargs["cov"] = False
-if not("fig" in dargs):
-    dargs["fig"] = None
-if not("color" in dargs):
-    dargs["color"] = 'orange'
-    
-# arg should be the path to the spectrum
-REQUIRED_ARGS = ["file"]
-for req in REQUIRED_ARGS:
-    if not(req in dargs.keys()):
-        printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
-        stop()
 
 wav, flux, fluxCov, contrast, contrastCov = loadFitsSpectrum(dargs['file'])
 

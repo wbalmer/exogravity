@@ -5,17 +5,8 @@
 This script is part of the exoGravity data reduction package.
 To use this script, you need to call it with a configuration file, see example below.
 
-Args:
-  config_file (str): the path the to YAML configuration file.
-
-Example:
-  python plot_detection config_file=full/path/to/yourconfig.yml
-
 Authors:
   M. Nowak, and the exoGravity team.
-
-Version:
-  xx.xx
 """
 
 # BASIC IMPORTS
@@ -36,19 +27,21 @@ except: # if ruamel not available, switch back to pyyaml, which does not handle 
     import yaml
     RUAMEL = False
 import sys, os
+# argparse for command line arguments
+import argparse
 
-# load aguments into a dictionnary
-dargs = args_to_dict(sys.argv)
+# create the parser for command lines arguments
+parser = argparse.ArgumentParser(description=
+"""
+Plot the chi2Map in the fiber field of view.
+""")
 
-if "help" in dargs.keys():
-    print(__doc__)
-    stop()
+# required arguments are the path to the folder containing the data, and the path to the config yml file to write 
+parser.add_argument('config_file', type=str, help="the path the to YAML configuration file.")
 
-# arg should be the path to the config yal file    
-REQUIRED_ARGS = ["config_file"]
-for req in REQUIRED_ARGS:
-    if not(req in dargs.keys()):
-        printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
+# load arguments into a dictionnary
+args = parser.parse_args()
+dargs = vars(args) # to treat as a dictionnary
 
 CONFIG_FILE = dargs["config_file"]
 if not(os.path.isfile(CONFIG_FILE)):

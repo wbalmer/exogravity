@@ -6,23 +6,8 @@ This script is part of the exoGravity data reduction package.
 The astrometry_reduce script is used to extract the astrometry from an exoplanet observation made with GRAVITY, in dual-field mode.
 To use this script, you need to call it with a configuration file, see example below.
 
-Args:
-  config_file (str): the path the to YAML configuration file.
-  gofast (bool, optional): if set, average over DITs to accelerate calculations (Usage: --gofast, or gofast=True, or goFast=False). This will bypass
-                           the value contained in the YAML file.
-  ralim (range): specify the RA range (in mas) over which to search for the astrometry: Example: ralim=[142,146]
-  declim (range): same as ralim, for declination
-  nra, ndec (int, optional): number of points over the RA and DEC range (the more points, the longer the calculation). Default is 100.
-  save_residuals (bool, optional): if set, save the residuals in npy files. figdir must also be provided for this option to be used
-
-Example:
-  python astrometry_reduce config_file=full/path/to/yourconfig.yml
-
 Authors:
   M. Nowak, and the exoGravity team.
-
-Version:
-  xx.xx
 """
 
 # BASIC IMPORTS
@@ -47,24 +32,54 @@ except: # if ruamel not available, switch back to pyyaml, which does not handle 
 import itertools
 import scipy.sparse, scipy.sparse.linalg
 from scipy.linalg import lapack
+# argparse for command line arguments
+import argparse
 
-# arg should be the path to the config yml file    
-REQUIRED_ARGS = ["config_file"]
+# create the parser for command lines arguments
+parser = argparse.ArgumentParser(description=
+"""
+Extract astrometry from an GRAVITY dual-field observation, using a chi2 map approach
+""")
+
+# required arguments are the path to the folder containing the data, and the path to the config yml file to write 
+parser.add_argument('config_file', type=str, help="the path the to YAML configuration file.")
+
+# some elements from the config file can be overridden with command line arguments
+parser.add_argument("--figdir", metavar="DIR", type=str, default=argparse.SUPPRESS,
+                    help="name of a directory where to store the output PDF files [overrides value from yml file]")   
+
+parser.add_argument("--go_fast", metavar="EMPTY or TRUE/FALSE", type=bool, nargs="?", default=argparse.SUPPRESS, const = True,
+                    help="if set, average over DITs to accelerate calculations. [overrides value from yml file]")   
+
+parser.add_argument("--gradient", metavar="EMPTY or TRUE/FALSE", type=bool, default=argparse.SUPPRESS, nargs="?", const = True,
+                     help="if set, improves the estimate of the location of chi2 minima by performing a gradient descent from the position on the map. [overrides value from yml file]")   
+
+parser.add_argument("--use_local", metavar="EMPTY or TRUE/FALSE", type=bool, default=argparse.SUPPRESS, nargs="?", const = True,
+                     help="if set, uses the local minima will be instead of global ones. Useful when dealing with multiple close minimums. [overrides value from yml file]")  
+ 
+parser.add_argument("--save_residuals", metavar="EMPTY or TRUE/FALSE", type=bool, default=argparse.SUPPRESS, nargs="?", const = True,
+                     help="if set, saves fit residuals as npy files for further inspection. mainly a DEBUG option. [overrides value from yml file]")
+
+# for the astrometry map
+parser.add_argument("--ralim", metavar=('MIN', 'MAX'), type=float, nargs=2, default=argparse.SUPPRESS,
+                    help="specify the RA range (in mas) over which to search for the astrometry. [overrides value from yml file]") 
+parser.add_argument("--declim", metavar=('MIN', 'MAX'), type=float, nargs=2, default=argparse.SUPPRESS,
+                    help="specify the DEC range (in mas) over which to search for the astrometry. [overrides value from yml file]")  
+parser.add_argument("--nra", metavar="N", type=int, default=argparse.SUPPRESS,
+                    help="number of points over the RA range. [overrides value from yml file]")  
+parser.add_argument("--ndec", metavar="N", type=int, default=argparse.SUPPRESS,
+                    help="number of points over the DEC range. [overrides value from yml file]")    
+
+# whether to zoom
+parser.add_argument("--zoom", metavar="ZOOM_FACTOR", type=int, default=argparse.SUPPRESS,
+                    help="Create an additional zoomed in version of the chi2 map around the best guess from the initial map.[overrides value from yml file]")
+
 
 # IF BEING RUN AS A SCRIPT, LOAD COMMAND LINE ARGUMENTS
 if __name__ == "__main__":    
     # load arguments into a dictionnary
-    dargs = args_to_dict(sys.argv)
-
-    # if user asks for help, print the doc and exit
-    if "help" in dargs.keys():
-        print(__doc__)
-        sys.exit()
-
-    # make sure the required arguments for this script are all here
-    for req in REQUIRED_ARGS:
-        if not(req in dargs.keys()):
-            printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
+    args = parser.parse_args()
+    dargs = vars(args) # to treat as a dictionnary
 
     CONFIG_FILE = dargs["config_file"]
     if not(os.path.isfile(CONFIG_FILE)):
@@ -76,39 +91,11 @@ if __name__ == "__main__":
     else:
         cfg = yaml.safe_load(open(CONFIG_FILE, "r"))
 
-    # OVERWRITE SOME OF THE CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
-    if "gofast" in dargs.keys():
-        cfg["general"]["gofast"] = (dargs["gofast"].lower()=="true") # bypass value from config file
-        
-    if "noinv" in dargs.keys():
-        cfg["general"]["noinv"] = dargs["noinv"] # bypass value from config file
-        
-    if "figdir" in dargs.keys():
-        cfg["general"]["figdir"] = dargs["figdir"] # bypass value from config file
-        
-    if "save_residuals" in dargs.keys():
-        cfg["general"]["save_residuals"] = True # bypass value from config file
-        
-    if "ralim" in dargs.keys():
-        cfg["general"]["ralim"] = [float(dummy) for dummy in dargs["ralim"].replace("[", "").replace("]", "").split(",")]
-        
-    if "nra" in dargs.keys():
-        cfg["general"]["n_ra"] = int(dargs["nra"])
-        
-    if "declim" in dargs.keys():
-        cfg["general"]["declim"] = [float(dummy) for dummy in dargs["declim"].replace("[", "").replace("]", "").split(",")]
-        
-    if "ndec" in dargs.keys():
-        cfg["general"]["n_dec"] = int(dargs["ndec"])
-        
-    if "gradient" in dargs.keys():
-        cfg["general"]["gradient"] = (dargs["gradient"].lower()=="true") # bypass value from config file
-        
-    if "use_local" in dargs.keys():
-        cfg["general"]["use_local"] = (dargs["use_local"].lower()=="true") # bypass value from config file
-        
-    if not("save_residuals") in dargs.keys():
-        cfg["general"]['save_residuals'] = False
+    # override some values with command line arguments
+    for key in dargs:
+        if key in cfg["general"]:
+            cfg["general"][key] = dargs[key]
+
 
 # IF THIS FILE IS RUNNING AS A MODULE, WE WILL TAKE CONFIGURATION FILE FROM THE PARENT MODULE
 if __name__ != "__main__":
@@ -119,17 +106,17 @@ if __name__ != "__main__":
 #######################
 # START OF THE SCRIPT #
 #######################
-
 DATA_DIR = cfg["general"]["datadir"]
 PHASEREF_MODE = cfg["general"]["phaseref_mode"]
 CONTRAST_FILE = cfg["general"]["contrast_file"]
 NO_INV = cfg["general"]["noinv"]
-GO_FAST = cfg["general"]["gofast"]
+GO_FAST = cfg["general"]["go_fast"]
 GRADIENT = cfg["general"]["gradient"]
+ZOOM = cfg["general"]["zoom"]
 USE_LOCAL = cfg["general"]["use_local"]
 FIGDIR = cfg["general"]["figdir"]
 SAVE_RESIDUALS = cfg["general"]["save_residuals"]
-STAR_ORDER = cfg["general"]["star_order"]
+POLY_ORDER = cfg["general"]["poly_order"]
 N_OPD = cfg["general"]["n_opd"]
 N_RA = cfg["general"]["n_ra"]
 N_DEC = cfg["general"]["n_dec"]
@@ -260,14 +247,14 @@ for k in range(len(objOis)):
     printinf("Create projector matrices (p_matrices) ({}/{})".format(k+1, len(objOis)))
     # calculate the projector
     wav = oi.wav*1e6
-    vectors = np.zeros([STAR_ORDER+1, oi.nwav], 'complex64')
+    vectors = np.zeros([POLY_ORDER+1, oi.nwav], 'complex64')
     thisVisRef = visRefs[k]
     thisAmpRef = np.abs(thisVisRef)
     oi.visOi.p_matrices = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav, oi.nwav], 'complex64')
     P = np.zeros([oi.visOi.nchannel, oi.nwav, oi.nwav], 'complex64')
     for dit in range(oi.visOi.ndit): # the loop of DIT number is necessary because of bad points mgmt (bad_indices depends on dit)
         for c in range(oi.visOi.nchannel):
-            for j in range(STAR_ORDER+1):
+            for j in range(POLY_ORDER+1):
                 vectors[j, :] = np.abs(thisAmpRef[c, :])*(wav-np.mean(wav))**j # pourquoi ampRef et pas visRef ?
             bad_indices = np.where(oi.visOi.flag[dit, c, :])
             vectors[:, bad_indices] = 0
@@ -355,8 +342,38 @@ def compute_chi2(oi, ra, dec):
         return 0, 0
     else:
         return -A**2/B, kappa
-
+                          
 # use the above function to fill out the chi2 maps
+# if zoom if requested, then we start by the large map to get our first guess
+if ZOOM > 0:
+    RA_LIM_INITGUESS = [RA_LIM[0], RA_LIM[1]]
+    DEC_LIM_INITGUESS = [DEC_LIM[0], DEC_LIM[1]]
+    printinf("RA grid: [{:.2f}, {:.2f}] with {:d} points".format(RA_LIM_INITGUESS[0], RA_LIM_INITGUESS[1], N_RA))
+    printinf("DEC grid: [{:.2f}, {:.2f}] with {:d} points".format(DEC_LIM_INITGUESS[0], DEC_LIM_INITGUESS[1], N_DEC))
+    raValues_initguess = np.linspace(RA_LIM_INITGUESS[0], RA_LIM_INITGUESS[1], N_RA)
+    decValues_initguess = np.linspace(DEC_LIM_INITGUESS[0], DEC_LIM_INITGUESS[1], N_DEC)
+    chi2Maps_initguess = np.zeros([len(objOis), N_RA, N_DEC])
+    raBests_initguess = np.zeros(len(objOis))
+    decBests_initguess = np.zeros(len(objOis))
+    for k in range(len(objOis)):        
+        printinf("Calculating chi2Map for file {}".format(objOis[k].filename))
+        chi2Best = np.inf
+        for i in range(N_RA):
+            for j in range(N_DEC):
+                ra = raValues_initguess[i]
+                dec = decValues_initguess[j]
+                chi2, kappa = compute_chi2(objOis[k], ra, dec)
+                chi2Maps_initguess[k, i, j] = chi2
+                if chi2Maps_initguess[k, i, j] < chi2Best:
+                    chi2Best = chi2Maps_initguess[k, i, j]
+                    raBests_initguess[k] = ra
+                    decBests_initguess[k] = dec
+    # extract init astrometric guess and get the limits of the zoomed map
+    ra_initguess = np.mean(raBests_initguess)
+    dec_initguess = np.mean(decBests_initguess)
+    RA_LIM = [ra_initguess-(RA_LIM[1]-RA_LIM[0])/(2*ZOOM), ra_initguess+(RA_LIM[1]-RA_LIM[0])/(2*ZOOM)]
+    DEC_LIM = [dec_initguess-(DEC_LIM[1]-DEC_LIM[0])/(2*ZOOM), dec_initguess+(DEC_LIM[1]-DEC_LIM[0])/(2*ZOOM)]
+        
 # prepare chi2Maps
 printinf("RA grid: [{:.2f}, {:.2f}] with {:d} points".format(RA_LIM[0], RA_LIM[1], N_RA))
 printinf("DEC grid: [{:.2f}, {:.2f}] with {:d} points".format(DEC_LIM[0], DEC_LIM[1], N_DEC))
@@ -491,7 +508,7 @@ for k in range(len(objOis)):
     for c in range(oi.visOi.nchannel):
         opdRanges[c, :] = np.linspace(opdLimits[c, 0], opdLimits[c, 1], N_OPD)
     # calculate the opd map
-    opdFit = oi.visOi.fitVisRefOpd(opdRanges, target_spectrum = np.abs(visRefs[k]), poly_spectrum = np.abs(visRefs[k]), poly_order = STAR_ORDER, no_inv = False)
+    opdFit = oi.visOi.fitVisRefOpd(opdRanges, target_spectrum = np.abs(visRefs[k]), poly_spectrum = np.abs(visRefs[k]), poly_order = POLY_ORDER, no_inv = False)
     bestOpds[k, :] = opdFit["best"].mean(axis = 0)
 
 decOpdBaselines = np.zeros([len(objOis), objOis[0].visOi.nchannel, 3, N_RA])
@@ -521,11 +538,13 @@ for k in range(len(PLANET_FILES)):
     preduce = cfg["general"]["reduce_planets"][k]
     preduce[list(preduce.keys())[0]]["astrometric_guess"] = [float(raGuesses[k]), float(decGuesses[k])] # YAML cannot convert numpy types    
     preduce[list(preduce.keys())[0]]["astrometric_solution"] = [float(raBests[k]), float(decBests[k])] # YAML cannot convert numpy types
-    ra_err, dec_err, rho = formal_errors[k]
+    if GRADIENT:
+        ra_err, dec_err, rho = formal_errors[k]
+    else:
+        ra_err, dec_err, rho = 0, 0, 0
     preduce[list(preduce.keys())[0]]["formal_errors"] = [float(ra_err), float(dec_err), float(rho)] # YAML cannot convert numpy types
 
-    
-# if this scrpit is used as a standalone script, save the updated yml file
+# if this script is used as a standalone script, save the updated yml file
 if __name__ == "__main__":
     f = open(CONFIG_FILE, "w")
     if RUAMEL:
@@ -578,7 +597,7 @@ if not(FIGDIR is None):
         try:
             cov = np.cov(raBests, decBests)/len(raBests)
             val, vec = np.linalg.eig(cov)
-            e1=matplotlib.patches.Ellipse((raBests.mean(),decBests.mean()), val[0]**0.5, val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C0', linewidth=2, linestyle='-', label = "Dispersion on gradient descent")
+            e1=matplotlib.patches.Ellipse((raBests.mean(),decBests.mean()), 2*val[0]**0.5, 2*val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C0', linewidth=2, linestyle='-', label = "Dispersion on gradient descent")
             ax.add_patch(e1)
             ax.plot([np.mean(raBests)], [np.mean(decBests)], '+C0', label = "Mean of gradient descent")
             ax.text(raBests.mean()+val[0]**0.5, decBests.mean()+val[1]**0.5, "RA={:.2f}+-{:.3f}\nDEC={:.2f}+-{:.3f}\nCOV={:.2f}".format(np.mean(raBests), cov[0, 0]**0.5, np.mean(decBests), cov[1, 1]**0.5, cov[0, 1]/np.sqrt(cov[0, 0]*cov[1, 1])), color="C0")
@@ -591,8 +610,21 @@ if not(FIGDIR is None):
         plt.axis("equal")       
         pdf.savefig()
         plt.close(fig)
-        
-        
+
+        if ZOOM > 0:
+            mapExtent = [np.min(raValues_initguess), np.max(raValues_initguess), np.min(decValues_initguess), np.max(decValues_initguess)]
+            fig = plt.figure(figsize=(10, 10))
+            ax = fig.add_subplot(111)
+            im = ax.imshow(chi2Maps_initguess.sum(axis = 0).T, origin = "lower", extent = mapExtent)
+            ax.plot([np.min(raValues), np.max(raValues), np.max(raValues), np.min(raValues), np.min(raValues)], [np.min(decValues), np.min(decValues), np.max(decValues), np.max(decValues), np.min(decValues)], "C3")
+            divider = make_axes_locatable(ax)
+            cax = divider.append_axes("right", size="5%", pad=0.05)
+            plt.colorbar(im, cax=cax)
+            ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
+            ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
+            pdf.savefig()
+            plt.close(fig)
+
         dRa = raValues[1] - raValues[0]
         dDec = decValues[1] - decValues[0]    
         mapExtent = [np.min(raValues), np.max(raValues), np.min(decValues), np.max(decValues)]
@@ -606,7 +638,7 @@ if not(FIGDIR is None):
         ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
         ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
         pdf.savefig()
-        plt.close(fig)
+        plt.close(fig)        
 
         fig = plt.figure(figsize = (10, 10))
         n = int(np.ceil(np.sqrt(len(objOis)+1)))
@@ -652,24 +684,6 @@ if not(FIGDIR is None):
         plt.tight_layout()
         pdf.savefig()
         plt.close(fig)
-        
-        """
-        # UV plot
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-        for k in range(len(objOis)):
-            oi = objOis[k]
-            uCoord = oi.visOi.uCoord
-            vCoord = oi.visOi.vCoord
-            uCoord[np.where(uCoord == 0)] = float("nan")
-            vCoord[np.where(vCoord == 0)] = float("nan")
-            if k == 0:
-                gPlot.uvMap(np.nanmean(uCoord, axis = 0), np.nanmean(vCoord, axis = 0), targetCoord=(raBest, decBest), symmetric = True, ax = ax, colors = ["C"+str(c) for c in range(oi.visOi.nchannel)], lim = 2*r)
-            else:
-                gPlot.uvMap(np.nanmean(uCoord, axis=0), np.nanmean(vCoord, axis = 0), targetCoord=None, symmetric = True, ax = ax, colors = ["C"+str(c) for c in range(oi.visOi.nchannel)], lim=2*r) 
-        pdf.savefig()
-        plt.close(fig)
-        """
         
         for k in range(len(objOis)):
             oi = objOis[k]

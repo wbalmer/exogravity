@@ -6,45 +6,6 @@ This script is part of the exoGravity data reduction package.
 The create_config script is used to create a basic YAML configuration file for an observation, which contains data
 used by the other scripts, formatted in YAML to be easily loaded as a Python dict.
 
-Args:
-  datadir (str): the directory in which the fits files are located
-  output (str): name (with full path) of the yml file in which to store the resulting configuration
-  figdir (str, optional): name of a directory where to store the output PDF files (not created if no figdir given)
-  ralim (range, optional): specify the RA range (in mas) over which to search for the astrometry: Example: ralim=[142,146]
-  declim (range, optional): same as ralim, for declination
-  nra, ndec (int, optional): number of points over the RA and DEC range (the more points, the longer the calculation)
-  nopd (int, optional): number of points to use when creating the OPD chi2 maps in the astrometry reduction. 50 is the default and is usually fine.
-  gofast (bool, optional): if set, average over DITs to accelerate calculations (Usage: --gofast, or gofast=True)
-  gradient (bool, optional): if set,  gradient descent will be performed from the position of the minimum in the chi2 map to identify true location of minimum.
-  use_local (bool, optional): if set, the local minima will be used instead of global ones. Useful when multiple close minimums are available
-  reflag (str, optional): can be set to True in order to use the REFLAG table to filter bad datapoints
-  noinv (bool, optional): if set, avoid inversion of the covariance matrix and replace it with a gaussian elimination approach. 
-                          This can sometimes speed up calculations, but it depends. As a general rule, the more DITs you have, 
-                          the less likely it is that noinv will be beneficial. It also depends on resolution, with higher resolution
-                          making noinv more likely to be useful.
-  contrast_file (str, optional): path to the contrast file (planet/star) to use as a model for the planet visibility amplitude.
-                                 Default is None, which is a constant contrast (as a function of wavelength).
-  star_order (int, optional): the order of the polynomial used to fit the stellar component of the visibility (default is 4)
-  star_diameter (float, optional): the diameter of the central star (in mas, to scale the visibility amplitude). Default is 0. 
-  corr_met (str, optional): can be "sylvestre" or "drs", or possibly "none" depending on which formula to use for the metrology correction. Default is sylvestre
-  corr_disp (str, optional): can be "sylvestre" or "drs", or possibly "none" depending on which formula to use for the dispersion correction. Default is sylvestre
-  extension (int, optional): the FITS extension to use, which depends on the polarization in the data. Deafult to 10 (combined).
-  swap_target (str, optional): the name of the target for the swap observations if off-axis mode
-  calib_strategy (str, optional): "all" to use all star files to calibrate visibility reference. "Nearest" to use the two nearest. On-axis only. "None" to skip calibration
-  target (str, optional): if you want to restrict to a particular target name, you can specify one
-  reduction (str, optional, indev): default is "astrored". You can select "dualscivis".
-  ft_flux_threshold (float, optional): if positive, all data with ft flux below this number times the mean ft flux for on star observation are removed (default 0.2)
-  phaseref_arclength_threshold (float, optional): if positive, the arclength of the polyfit to phaseref is calculated for each dit and baseline, and the data with an arclength 
-                                                  greater that this threshold are removed. Default: 5
- 
-Example:
-  Minimal
-    python create_config datadir=/path/to/your/data/directory output=/path/to/result.yml
-  To set the RA/DEC range to explore to find the astrometry, and the resolution:
-    python create_config datadir=/data/directory output=result.yml ralim=[142,146] declim=[73,78] nra=200 ndec=200
-  Speed up calculation to test an astrometry range
-    python create_config datadir=/data/directory output=result.yml ralim=[140,150] declim=[70,80] nra=50 ndec=50 --gofast
-
 Configuration:
   The configuration file must contain all necessary information as to where the data are located on your disk, which mode
   of observation was used, as well as some parameters for the data reduction. It is strongly advised to use the
@@ -53,9 +14,6 @@ Configuration:
 
 Authors:
   M. Nowak, and the exoGravity team.
-
-Version:
-  xx.xx
 """
 
 # basic imports
@@ -75,26 +33,109 @@ try:
 except: # if ruamel not available, switch back to pyyaml, which does not handle comments properly
     import yaml
     RUAMEL = False
+# argparse for command line arguments
+import argparse
 # other random stuff
 import glob
 
-# arg should be the path to the folder containing the data, and the path to the config yml file to write 
-REQUIRED_ARGS = ["datadir", "output"]
+# create the parser for command lines arguments
+parser = argparse.ArgumentParser(description=
+"""
+create a basic YAML configuration file for an observation, which contains data
+used by the other scripts, formatted in YAML to be easily loaded as a Python dict.
+""")
+
+# required arguments are the path to the folder containing the data, and the path to the config yml file to write 
+parser.add_argument('datadir', type=str, help="the directory in which the fits files are located")
+parser.add_argument('output', type=str, help="name (with full path) of the yml file in which to store the resulting configuration")
+
+# optional arguments
+parser.add_argument("--figdir", metavar="DIR", type=str, default=None,
+                    help="name of a directory where to store the output PDF files (not created if no figdir given)")   
+
+# for the astrometry map
+parser.add_argument("--ralim", metavar=('MIN', 'MAX'), type=float, nargs=2, default=None,
+                    help="specify the RA range (in mas) over which to search for the astrometry. Default: fiber position +/- 30 mas (UTs) or +/- 120 mas (ATs).") 
+parser.add_argument("--declim", metavar=('MIN', 'MAX'), type=float, nargs=2, default=None, 
+                    help="specify the DEC range (in mas) over which to search for the astrometry. Default: fiber position +/- 30 mas (UTs) or +/- 120 mas (ATs).")  
+parser.add_argument("--nra", metavar="N", type=int, default=50,
+                    help="number of points over the RA range. Default: 50")  
+parser.add_argument("--ndec", metavar="N", type=int, default=50,
+                    help="number of points over the DEC range. Default: 50")    
+
+# for the astrometry map on the swap
+parser.add_argument("--ralim_swap", metavar=('MIN', 'MAX'), type=float, nargs=2, default=None,
+                    help="specify the RA range (in mas) over which to search for the astrometry of the swap. Default: fiber position +/- 30 mas (UTs) or +/- 120 mas (ATs).")     
+parser.add_argument("--declim_swap", metavar=('MIN', 'MAX'), type=float, nargs=2, default=None,
+                    help="specify the DEC range (in mas) over which to search for the astrometry. Default: fiber position +/- 30 mas (UTs) or +/- 120 mas (ATs).")    
+parser.add_argument("--nra_swap", metavar="N", type=int, default=50,
+                    help="number of points over the RA range for the swap. Default: 50")    
+parser.add_argument("--ndec_swap", metavar="N", type=int, default=50,
+                    help="number of points over the DEC range for the swap. Default: 50")    
+
+# whether to zoom
+parser.add_argument("--zoom", metavar="ZOOM_FACTOR", type=int, help="Create an additional zoomed in version of the chi2 map around the best guess from the initial map. Default: No zoom", default = 0)
+
+# some parameters related to how files are loaded
+parser.add_argument("--target", metavar="NAME", type=str, default = None,
+                    help="restrict the reduction to a particular target (from FITS header). Default: None")
+parser.add_argument("--swap_target", metavar="NAME", type=str, default = None,
+                    help="target name (from FITS header) for the binary swap calibration observation if off-axis mode. Default: None")
+parser.add_argument("--fiber_pos", metavar=("RA", "DEC"), type=int, nargs=2, default = None,
+                    help="restrict the reduction to a single fiber position (in mas). Default: all files are taken")
+
+parser.add_argument("--reduction", metavar="LEVEL", type=str, default = "astrored", choices=["astrored", "dualscivis"],
+                    help="the data reduction level to use. Default: astrored")
+parser.add_argument("--extension", metavar="EXT", type=int, default = 10, choices=[10, 11, 12],
+                    help="Which extension to use for the polarimetry. Default: 10 (combined)")
+parser.add_argument("--corr_met", metavar="METHOD", type=str, default = "drs", choices = ["drs", "sylvestre"],
+                    help="how to calculate the metrology correction for astrored files. can be can be 'sylvestre' or 'drs', or possibly 'none'. Default: drs")
+parser.add_argument("--corr_disp", metavar="METHOD", type=str, default = "drs", choices = ["drs", "sylvestre"],
+                    help="how to calculate the dispersion correction for astrored files. can be can be 'sylvestre' or 'drs', or possibly 'none'. Default: drs")
+
+# data filtering
+parser.add_argument("--phaseref_arclength_threshold", metavar="THRESHOLD", type=float, default = 5,
+                    help="remove all dit/baseline with an arclength of the phaseref polyfit larger this threshold. Default: 5")
+parser.add_argument("--ft_flux_threshold", metavar="THRESHOLD", type=float, default = 0.2,
+                    help="remove all dits/baselines with an ft flux below THRESH*MEAN(FT_FLUX_ON_STAR) (default 0.2)")
+parser.add_argument("--reflag", metavar="TRUE/FALSE", type=bool, default=False,
+                     help="if set, use the REFLAG table to filter bad datapoints. Requires running the scriot twice! Default: false")  # deprecated?
+
+# for the OPD calculations on baselines
+parser.add_argument("--nopd", type=int, default=100,
+                    help="DEPRECATED. Default: 100")    
+
+# how to deal with detrending and calibrations
+parser.add_argument("--poly_order", metavar="ORDER", type=int, default=4,
+                    help="order of the polynomial used to detrend the data (remove the stellar component in exoplanet observations). Default: 4")   
+parser.add_argument("--contrast_file", metavar="FILE", type=str, default=None,
+                    help="path to the contrast file (planet/star) to use as a model for the planet visibility amplitude. Default: Constant contrast")
+parser.add_argument("--star_diameter", metavar="DIAMETER", type=float, default = 0,
+                    help="the diameter of the central star (in mas, to scale the visibility amplitude). Default: 0 mas")
+parser.add_argument("--calib_strategy", metavar="STRATEGY", type=str, default = "nearest", choices = ["nearest", "self", "all", "none"],
+                    help="""
+                    how to calculate the reference the coherent flux. 'all' for using all file. 'nearest' for using the two nearest available files.
+                    erence. 'none' to skip the calibration. 'self' to calibrate each file by itself. Default: 'nearest'
+                    """)
+
+# switches for different behaviors
+parser.add_argument("--go_fast", metavar="EMPTY or TRUE/FALSE", type=bool, default=False, nargs="?", const=True,
+                    help="if set, average over DITs to accelerate calculations. Default: false")   
+parser.add_argument("--gradient", metavar="EMPTY or TRUE/FALSE", type=bool, default=True,  nargs="?", const=True,
+                     help="if set, improves the estimate of the location of chi2 minima by performing a gradient descent from the position on the map. Default: true")   
+parser.add_argument("--use_local", metavar="EMPTY or TRUE/FALSE", type=bool, default=False,  nargs="?", const=True,
+                     help="if set, uses the local minima will be instead of global ones. Useful when dealing with multiple close minimums. Default: false")   
+parser.add_argument("--noinv", metavar="EMPTY or TRUE/FALSE", type=bool, default=False,  nargs="?", const=True,
+                     help="if set, avoid inversion of the covariance matrix and replace it with a gaussian elimination approach. DEPRECATED. Default: false")  # deprecated?
+parser.add_argument("--save_residuals", metavar="EMPTY or TRUE/FALSE", type=bool, default=False,  nargs="?", const=True,
+                     help="if set, saves fit residuals as npy files for further inspection. mainly a DEBUG option. Default: false")
+
 
 # IF BEING RUN AS A SCRIPT, LOAD COMMAND LINE ARGUMENTS
 if __name__ == "__main__":    
-    # load arguments into a dictionnary
-    dargs = args_to_dict(sys.argv)
 
-    # if user asks for help, print the doc and exit
-    if "help" in dargs.keys():
-        print(__doc__)
-        sys.exit()
-
-    # make sure the required arguments for this script are all here
-    for req in REQUIRED_ARGS:
-        if not(req in dargs.keys()):
-            printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
+    args = parser.parse_args()
+    dargs = vars(args) # to treat as a dictionnary
 
     if not(os.path.isdir(dargs["datadir"])):
         printerr("Data directory {} not found".format(dargs["datadir"]))
@@ -112,132 +153,8 @@ if __name__ != "__main__":
 
 #######################
 # START OF THE SCRIPT #
-#######################        
-        
-# A whole bunch of arguments can have default values for the lazy user
-if not("ralim" in dargs.keys()) or not("declim" in dargs.keys()):
-    printwar("ralim or declim not provided in args. Default: fiber position +/- 30 mas (UTs) or +/- 120 mas (ATs).")
-    dargs["ralim"] = None
-    dargs["declim"] = None
-        
-if not("ralim_swap" in dargs.keys()) or not("declim_swap" in dargs.keys()):
-    printwar("ralim_swap or declim_swap not provided in args. Default: fiber position +/- 30 mas (UTs) or +/- 120 mas (ATs).")
-    dargs["ralim_swap"] = None
-    dargs["declim_swap"] = None
-        
-if not("nra" in dargs.keys()):
-    printwar("nra not provided in args. Default: nra=100")
-    dargs["nra"] = 50
-else:
-    dargs["nra"] = int(dargs["nra"])
-        
-if not("ndec" in dargs.keys()):
-    printwar("ndec not provided in args. Default: ndec=100")
-    dargs["ndec"] = 50
-else:
-    dargs["ndec"] = int(dargs["ndec"])
-    
-if not("nopd" in dargs.keys()):
-    printwar("nopd not provided in args. Default: to nopd=100")
-    dargs["nopd"] = 50
-else:
-    dargs["nopd"] = int(dargs["nopd"])
-        
-if not("nra_swap" in dargs.keys()):
-    printwar("nra_swap not provided in args. Default: nra=100")
-    dargs["nra_swap"] = 100
-else:
-    dargs["nra_swap"] = int(dargs["nra_swap"])
-    
-if not("ndec_swap" in dargs.keys()):
-    printwar("ndec_swap not provided in args. Default: ndec=100")
-    dargs["ndec_swap"] = 100
-else:
-    dargs["ndec_swap"] = int(dargs["ndec_swap"])
-    
-if not("star_order" in dargs.keys()):
-    printwar("star_order not provided in args. Default: star_order=4")
-    dargs["star_order"] = 4
-else:
-    dargs["star_order"] = int(dargs["star_order"])
-    
-if not("gofast" in dargs.keys()):
-    printwar("Value for gofast option not set. Defaut: gofast=False")
-    dargs['gofast'] = False
-    
-if not("gradient" in dargs.keys()):
-    printwar("Value for gradient option not set. Defaut: gradient=True")
-    dargs['gradient'] = True
-        
-if not("use_local" in dargs.keys()):
-    printwar("Value for use_local option not set. Defaut: use_local=False")
-    dargs['use_local'] = False
-        
-if not("noinv" in dargs.keys()):
-    printwar("Value for noinv option not set. Default: noinv=False")
-    dargs['noinv'] = False
-        
-if not("reflag" in dargs.keys()):
-    printwar("Value for reflag not given. Default: reflag = False")
-    dargs['reflag'] = False
-        
-if not("contrast_file" in dargs.keys()):
-    printwar("Contrast file not given. Constant contrast will be used")
-    dargs['contrast_file'] = None
-        
-if not("extension" in dargs.keys()):
-    printwar("extension not given. Using basic value '10'.")
-    dargs['extension'] = 10       
-else:
-    dargs["extension"] = int(dargs["extension"])
-        
-if not("star_diameter" in dargs.keys()):
-    printwar("star_diameter not provided in args. Default: star_diameter=0 (point source)")
-    dargs["star_diameter"] = 0
-else:
-    dargs["star_diameter"] = float(dargs["star_diameter"])
-    
-if not("corr_met" in dargs.keys()):
-    printwar("corr_met not specified. Using 'sylvestre'")
-    dargs["corr_met"] = "sylvestre"
-        
-if not("corr_disp" in dargs.keys()):
-    printwar("corr_disp not specified. Using 'sylvestre'")
-    dargs["corr_disp"] = "sylvestre"
-
-if not("swap_target" in dargs.keys()):
-    printwar("SWAP target name not given. Assuming the observation to be on-axis (no swap)")
-    dargs["swap_target"] = "%%"
-
-if not("target" in dargs.keys()):
-    dargs["target"] = None
-    
-if not("calib_strategy" in dargs.keys()):
-    printwar("calib strategy not given. Using default 'nearest'")
-    dargs["calib_strategy"] = "nearest"
-
-if not("reduction" in dargs.keys()):
-    printwar("reduction not given. Using default 'astrored'")
-    dargs["reduction"] = "astrored"
-
-if not("phaseref_arclength_threshold" in dargs.keys()):
-    printwar("phaseref_arclength_threshold not given. Using default value of 5")
-    dargs["phaseref_arclength_threshold"] = 5
-        
-if not("ft_flux_threshold" in dargs.keys()):
-    printwar("ft_flux_threshold not given. Using default value of 0.2")
-    dargs["ft_flux_threshold"] = 0.2
-
-if not("figdir" in dargs.keys()):
-    printwar("No figdir given. The output PDF will not be created, and only the terminal output will be available.")
-    dargs["figdir"] = None
-
-if not("fiber_pos" in dargs.keys()):
-    printwar("No fiber_pos given. All files will be kept in this reduction")
-    FIBER_POS = None
-else:
-    FIBER_POS = [float(val) for val in dargs["fiber_pos"].split("[")[1].split("]")[-2].split(",")]
-
+#######################       
+ 
 # load the datafiles
 datafiles = glob.glob(dargs["datadir"]+'/GRAVI*'+dargs["reduction"]+'*.fits')
 # remove duplicates with _s extension
@@ -277,8 +194,8 @@ for k in range(len(datafiles)):
                 printinf("Target does not match the provided target name. Skipping this file.")
                 continue                        
         printinf(msg+"Assuming file to be on planet.")
-        if not(FIBER_POS is None):
-            if ((oi.sObjX - FIBER_POS[0])**2 + (oi.sObjY - FIBER_POS[1])**2)**0.5>1:
+        if not(dargs["fiber_pos"] is None):
+            if ((oi.sObjX - dargs["fiber_pos"][0])**2 + (oi.sObjY - dargs["fiber_pos"][1])**2)**0.5>1:
                 printwar("File at is too far for the requested fiber position. This file will be ignored")
             else:
                 objOis.append(oi)
@@ -350,14 +267,15 @@ general = {"datadir": dargs["datadir"],
            "corr_disp": dargs['corr_disp'],
            "extension": int(dargs["extension"]),
            "reduction": dargs["reduction"],                      
-           "gofast": dargs['gofast'],
+           "go_fast": dargs['go_fast'],
            "gradient": dargs['gradient'],
+           "zoom": dargs['zoom'],           
            "use_local": dargs['use_local'],                      
            "noinv": dargs['noinv'],
            "reflag": dargs['reflag'],           
            "contrast_file": dargs['contrast_file'],
            "figdir": dargs["figdir"],
-           "save_residuals": False,           
+           "save_residuals": dargs["save_residuals"],           
            "n_opd": int(dargs["nopd"]),
            "n_ra": int(dargs["nra"]),
            "n_dec": int(dargs["ndec"]),
@@ -367,7 +285,7 @@ general = {"datadir": dargs["datadir"],
            "declim": declim,
            "ralim_swap": ralim_swap,
            "declim_swap": declim_swap,           
-           "star_order": int(dargs["star_order"]),
+           "poly_order": int(dargs["poly_order"]),
            "star_diameter": float(dargs["star_diameter"]),
            "phaseref_arclength_threshold": float(dargs["phaseref_arclength_threshold"]),
            "ft_flux_threshold": float(dargs["ft_flux_threshold"]),

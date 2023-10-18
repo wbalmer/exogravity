@@ -1,50 +1,37 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Make a quick plot of an exoGRAVITY spectrum fits file
+"""make a covariance weighted combination of GRAVITY spectra contained in fits files
 
 This script is part of the exoGravity data reduction package.
 The combine_spectra is a simple tool which can be used to combine a set of FITS spectra
 using the proper coavariance-weighted sum.
 
-Args:
-  files: comma separated list of file names
-  output: name of the output spectrum file
-
-Example:
-  python combine_spectra files=BetaPictoric_2020-02-09.fits,BetaPictoric_2020-02-11.fits output=BetaPictorisc.fits
-
 Authors:
   M. Nowak, and the exoGravity team.
-
-Version:
-  xx.xx
 """
 import numpy as np
 from cleanGravity.utils import loadFitsSpectrum, saveFitsSpectrum
 from utils import *
 import sys
 import os
+# argparse for command line arguments
+import argparse
 
-# load aguments into a dictionnary
-dargs = args_to_dict(sys.argv)
+# create the parser for command lines arguments
+parser = argparse.ArgumentParser(description=
+"""
+Make a covariance weighted combination of GRAVITY spectra contained in fits files
+""")
 
-if "help" in dargs.keys():
-    print(__doc__)
-    stop()
+# required arguments are the path to the folder containing the data, and the path to the config yml file to write 
+parser.add_argument('files', metavar = "file", type=str, nargs="+", help="fits containing individual spectra to be combined.")
 
-# arg should be the path to the spectrum
-REQUIRED_ARGS = ["files", "output"]
-for req in REQUIRED_ARGS:
-    if not(req in dargs.keys()):
-        printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
-        stop()
+# required arguments are the path to the folder containing the data, and the path to the config yml file to write 
+parser.add_argument('output', type=str, help="the name of output fits file where to save the combined spectrum.")
 
-if os.path.isfile(dargs["output"]):
-    printinf("File {} already exists.".format(dargs["output"]))
-    r = printinp("Overwrite it? (y/n)")
-    if not(r.lower() in ["y", "yes"]):
-        printerr("User abort")
-        stop()
+# load arguments into a dictionnary
+args = parser.parse_args()
+dargs = vars(args) # to treat as a dictionnary
         
 filenames = dargs["files"].split(',')
 nfiles = len(filenames)

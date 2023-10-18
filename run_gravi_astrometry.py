@@ -57,7 +57,8 @@ if (swap_target is None):
     import exogravity
     dargs = {"datadir": "./"}
     dargs["nra"] = 100 
-    dargs["ndec"] = 100     
+    dargs["ndec"] = 100
+    dargs["zoom"] = 5
     exogravity.dargs = dargs
 
     # call create_config to create the proper cfg dictionnary
