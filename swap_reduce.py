@@ -46,7 +46,7 @@ parser.add_argument('config_file', type=str, help="the path the to YAML configur
 parser.add_argument("--figdir", metavar="DIR", type=str, default=argparse.SUPPRESS,
                     help="name of a directory where to store the output PDF files [overrides value from yml file]")   
 
-parser.add_argument("--go_fast", usage="[..]", metavar="EMPTY or TRUE/FALSE", type=bool, nargs="?", default=argparse.SUPPRESS, const = True,
+parser.add_argument("--go_fast", metavar="EMPTY or TRUE/FALSE", type=bool, nargs="?", default=argparse.SUPPRESS, const = True,
                     help="if set, average over DITs to accelerate calculations. [overrides value from yml file]")   
 
 parser.add_argument("--gradient", metavar="EMPTY or TRUE/FALSE", type=bool, default=argparse.SUPPRESS, nargs="?", const = True,
@@ -111,6 +111,7 @@ DEC_LIM = cfg["general"]["declim_swap"]
 EXTENSION = cfg["general"]["extension"]
 REDUCTION = cfg["general"]["reduction"]
 GRADIENT = cfg["general"]["gradient"]
+ZOOM = cfg["general"]["zoom"]
 FIGDIR = cfg["general"]["figdir"]
 GO_FAST = cfg["general"]["go_fast"]
 
@@ -224,8 +225,37 @@ def compute_chi2(ois1, ois2, ra, dec):
     chi2_baselines = np.nansum(np.imag(visRefSwap)**2, axis = 1)
     return chi2, chi2_baselines, visRefSwap, np.abs(visRefS1)/np.abs(visRefS2)
 
-
-# prepare chi2Maps
+# use the above function to fill out the chi2 maps
+# if zoom if requested, then we start by the large map to get our first guess
+if ZOOM > 0:
+    RA_LIM_INITGUESS = [RA_LIM[0], RA_LIM[1]]
+    DEC_LIM_INITGUESS = [DEC_LIM[0], DEC_LIM[1]]
+    printinf("RA grid: [{:.2f}, {:.2f}] with {:d} points".format(RA_LIM_INITGUESS[0], RA_LIM_INITGUESS[1], N_RA))
+    printinf("DEC grid: [{:.2f}, {:.2f}] with {:d} points".format(DEC_LIM_INITGUESS[0], DEC_LIM_INITGUESS[1], N_DEC))
+    raValues_initguess = np.linspace(RA_LIM_INITGUESS[0], RA_LIM_INITGUESS[1], N_RA)
+    decValues_initguess = np.linspace(DEC_LIM_INITGUESS[0], DEC_LIM_INITGUESS[1], N_DEC)
+    chi2Best = np.inf
+    chi2Map_initguess = np.zeros([N_RA, N_DEC])
+    chi2Map_baselines_initguess = np.zeros([oi.visOi.nchannel, N_RA, N_DEC])
+    raBests_initguess = np.zeros(len(objOis))
+    decBests_initguess = np.zeros(len(objOis)) 
+    # start the fit
+    for i in range(N_RA):
+        ra = raValues_initguess[i]    
+        printinf("Calculating chi2 map for ra value {} ({}/{})".format(ra, i+1, N_RA))
+        for j in range(N_DEC):
+            dec = decValues_initguess[j]
+            chi2, chi2_baselines, visRefSwap, v1_v2_ratio = compute_chi2(ois1, ois2, ra, dec)
+            chi2Map_initguess[i, j] = chi2
+            chi2Map_baselines_initguess[:, i, j] = chi2_baselines
+            if chi2Map_initguess[i, j] < chi2Best:
+                chi2Best = chi2Map_initguess[i, j]
+                ra_initguess = ra
+                dec_initguess = dec
+    RA_LIM = [ra_initguess-(RA_LIM[1]-RA_LIM[0])/(2*ZOOM), ra_initguess+(RA_LIM[1]-RA_LIM[0])/(2*ZOOM)]
+    DEC_LIM = [dec_initguess-(DEC_LIM[1]-DEC_LIM[0])/(2*ZOOM), dec_initguess+(DEC_LIM[1]-DEC_LIM[0])/(2*ZOOM)]
+     
+# prepare zoomed chi2Maps
 raValues = np.linspace(RA_LIM[0], RA_LIM[1], N_RA)
 decValues = np.linspace(DEC_LIM[0], DEC_LIM[1], N_DEC)
 chi2Map = np.zeros([N_RA, N_DEC])
@@ -371,22 +401,33 @@ if not(FIGDIR is None):
     hdul.writeto(FIGDIR+"/chi2Map_swap.fits", overwrite = True)
     
     with PdfPages(FIGDIR+"/swap_fit_results.pdf") as pdf:
-        
-        for k in range(len(objOis)):
+                
+        if ZOOM > 0:   
+            fig = plt.figure(figsize = (10, 10))
+            ax = fig.add_subplot(1, 1, 1)
             oi = objOis[k]
-            fig = plt.figure(figsize=(10, 8))
-            gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.visRef, oi.visOi.flag).mean(axis = 0), subtitles = oi.basenames, fig = fig)
-            # move the best fit back to star frame to overplot it
-            this_u = (raBest*oi.visOi.uCoord + decBest*oi.visOi.vCoord)/1e7
-            phase = 2*np.pi*this_u*1e7/3600.0/360.0/1000.0*2*np.pi
-            phi = np.exp(1j*phase)
-            if oi.swap:
-                gPlot.reImPlot(w, np.ma.masked_array(phi*bestFitS1, oi.visOi.flag).mean(axis = 0), fig = fig)                
-            else:
-                gPlot.reImPlot(w, np.ma.masked_array(np.conj(phi)*bestFitS2, oi.visOi.flag).mean(axis = 0), fig = fig)
-            plt.legend([oi.filename.split("/")[-1], "Swap fit (from combined files)"])
+            name = oi.filename.split('/')[-1]
+            im = ax.imshow(chi2Map_initguess.T, origin = "lower", extent = [np.min(raValues_initguess), np.max(raValues_initguess), np.min(decValues_initguess), np.max(decValues_initguess)])
+            ax.plot([np.min(raValues), np.max(raValues), np.max(raValues), np.min(raValues), np.min(raValues)], [np.min(decValues), np.min(decValues), np.max(decValues), np.max(decValues), np.min(decValues)], "C3")
+            ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
+            ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
+            ax.set_title(name)
+            plt.colorbar(im)
+            plt.tight_layout()
             pdf.savefig()
-            
+
+            fig = plt.figure(figsize = (10, 10))
+            for c in range(np.shape(chi2Map_baselines_initguess)[0]):
+                ax = fig.add_subplot(3, 2, c+1)
+                im = ax.imshow(chi2Map_baselines_initguess[c, :, :].T, origin = "lower", extent = [np.min(raValues_initguess), np.max(raValues_initguess), np.min(decValues_initguess), np.max(decValues_initguess)])
+                ax.set_xlabel("$\Delta{}\mathrm{RA}$ (mas)")
+                ax.set_ylabel("$\Delta{}\mathrm{DEC}$ (mas)")
+                ax.set_title(oi.basenames[c])
+                plt.colorbar(im)            
+            plt.tight_layout()
+            pdf.savefig()
+
+
         fig = plt.figure(figsize = (10, 10))
         ax = fig.add_subplot(1, 1, 1)
         oi = objOis[k]
@@ -410,5 +451,22 @@ if not(FIGDIR is None):
             plt.colorbar(im)            
         plt.tight_layout()
         pdf.savefig()
+
+        for k in range(len(objOis)):
+            oi = objOis[k]
+            fig = plt.figure(figsize=(10, 8))
+            gPlot.reImPlot(w, np.ma.masked_array(oi.visOi.visRef, oi.visOi.flag).mean(axis = 0), subtitles = oi.basenames, fig = fig)
+            # move the best fit back to star frame to overplot it
+            this_u = (raBest*oi.visOi.uCoord + decBest*oi.visOi.vCoord)/1e7
+            phase = 2*np.pi*this_u*1e7/3600.0/360.0/1000.0*2*np.pi
+            phi = np.exp(1j*phase)
+            if oi.swap:
+                gPlot.reImPlot(w, np.ma.masked_array(phi*bestFitS1, oi.visOi.flag).mean(axis = 0), fig = fig)                
+            else:
+                gPlot.reImPlot(w, np.ma.masked_array(np.conj(phi)*bestFitS2, oi.visOi.flag).mean(axis = 0), fig = fig)
+            plt.legend([oi.filename.split("/")[-1], "Swap fit (from combined files)"])
+            pdf.savefig()
+            
+
 
         

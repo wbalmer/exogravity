@@ -131,16 +131,14 @@ all_targets = list(set([h["OBJECT"] for h in headers]))
 swap_targets = list(set([h["OBJECT"] for h in headers if (h["ESO INS SOBJ SWAP"] == "YES")]))
 not_swap_targets = list(set([target for target in all_targets if not(target in swap_targets)]))
 
-# we can only deal with one target of each
-if len(swap_targets) > 0:
-    swap_target = swap_targets[0]
-else:
-    swap_target = None
+# we can only deal with one target of each. Just take the first one if not explicitly given by user
+if dargs["swap_target"] is None:
+    if len(swap_targets) > 0:
+        dargs["swap_target"] = swap_targets[0]
 
-if len(not_swap_targets) > 0:
-    not_swap_target = not_swap_targets[0]
-else:
-    not_swap_target = None
+if dargs["target"] is None:
+    if len(not_swap_targets) > 0:
+        dargs["target"] = not_swap_targets[0]
 
 import exogravity
 dargs["datadir"] = "./"
@@ -154,7 +152,7 @@ if dargs["calib_strategy"] is None:
     exogravity.dargs["calib_strategy"] = "nearest"
 
 # CASE 1: ON-AXIS
-if (swap_target is None):
+if (dargs["swap_target"] is None):
     # call create_config to create the proper cfg dictionnary
     print(MSG_FORMAT.format("At {}: entering create_config script".format(datetime.utcnow())))
     from exogravity import create_config
@@ -185,7 +183,7 @@ if (swap_target is None):
 
     
 # CASE 2: ON-AXIS WITH SWAP
-elif not(swap_target is None) and not(not_swap_target is None):
+elif not(dargs["swap_target"] is None) and not(dargs["target"] is None):
     # call create_config to create the proper cfg dictionnary
     print(MSG_FORMAT.format("At {}: entering create_config script".format(datetime.utcnow())))
     from exogravity import create_config
@@ -194,7 +192,7 @@ elif not(swap_target is None) and not(not_swap_target is None):
     # now we can call the swap_reduce script
     # For this, we'll update a few configuration parameters
     if dargs["calib_strategy"] is None:
-        exogravity.cfg["general"]["calib_strategy"] = "self" # start descent from local minimu closests to global minimum
+        exogravity.cfg["general"]["calib_strategy"] = "self" 
     print(MSG_FORMAT.format("At {}: entering swap_reduce script".format(datetime.utcnow())))
     from exogravity import swap_reduce    
     print(MSG_FORMAT.format("At {}: exiting swap_reduce script".format(datetime.utcnow())))    
@@ -207,7 +205,7 @@ elif not(swap_target is None) and not(not_swap_target is None):
     # now we can call the astrometry_reduce script
     # For this, we'll update a few configuration parameters
     if dargs["calib_strategy"] is None:
-        exogravity.cfg["general"]["calib_strategy"] = "star" # start descent from local minimu closests to global minimum    
+        exogravity.cfg["general"]["calib_strategy"] = "star"   
     print(MSG_FORMAT.format("At {}: entering astrometry_reduce script".format(datetime.utcnow())))
     from exogravity import astrometry_reduce
     print(MSG_FORMAT.format("At {}: exiting astrometry_reduce script".format(datetime.utcnow())))
@@ -227,7 +225,7 @@ elif not(swap_target is None) and not(not_swap_target is None):
     
     
 # CASE 3: PURE SWAP
-elif not(swap_target is None) and (not_swap_target is None):
+elif not(dargs["swap_target"] is None) and (dargs["target"] is None):
     # call create_config to create the proper cfg dictionnary
     print(MSG_FORMAT.format("At {}: entering create_config script".format(datetime.utcnow())))
     from exogravity import create_config
