@@ -130,7 +130,12 @@ headers = [fits.open(filename)[0].header for filename in filenames]
 all_targets = list(set([h["OBJECT"] for h in headers]))
 swap_targets = list(set([h["OBJECT"] for h in headers if (h["ESO INS SOBJ SWAP"] == "YES")]))
 not_swap_targets = list(set([target for target in all_targets if not(target in swap_targets)]))
-
+pola = list(set([h["ESO INS POLA MODE"].lower() for h in header]))
+if "split" in pola:
+    if not(dargs["extension"] in [11, 12]):
+        print(MSG_FORMAT.format("The data appears to be in 'SPLIT' polarisation. Please specify which extension to reduce (--extension 11 or 12)"))
+        sys.exit()
+        
 # we can only deal with one target of each. Just take the first one if not explicitly given by user
 if dargs["swap_target"] is None:
     if len(swap_targets) > 0:
