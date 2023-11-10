@@ -285,6 +285,11 @@ for i in range(N_RA):
             decGuess = dec
             bestFit = np.real(visRefSwap)+0j
 
+chi2, chi2_baselines, visRefSwap, v1_v2_ratio = compute_chi2(ois1, ois2, raGuess, decGuess)
+bestFit = np.real(visRefSwap)+0j
+bestFitS1 = bestFit*np.sqrt(v1_v2_ratio)
+bestFitS2 = bestFit/np.sqrt(v1_v2_ratio)
+printinf("Mean MJD of observtion: {}".format(np.mean(np.array([oi.mjd for oi in ois1+ois2]))))
 printinf("Best astrometric solution on map: RA={}, DEC={}".format(raGuess, decGuess))
 
 if GRADIENT:

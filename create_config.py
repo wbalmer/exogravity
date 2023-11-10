@@ -101,6 +101,8 @@ parser.add_argument("--ft_flux_threshold", metavar="THRESHOLD", type=float, defa
                     help="remove all dits/baselines with an ft flux below THRESH*MEAN(FT_FLUX_ON_STAR) (default 0.2)")
 parser.add_argument("--reflag", metavar="TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=argparse.SUPPRESS, nargs="?", const = True,
                      help="if set, use the REFLAG table to filter bad datapoints. Requires running the scriot twice! Default: false")  # deprecated?
+parser.add_argument("--exclude_targets", metavar="tgt1 tgt2 etc.", type=str, nargs="+", default = [],
+                     help="can be used to exclude some target names from the reduction")
 
 # for the OPD calculations on baselines
 parser.add_argument("--nopd", type=int, default=100,
@@ -177,6 +179,9 @@ for k in range(len(datafiles)):
     filename = datafiles[k]
     printinf("Loading "+filename)
     oi = gravity.GravityOiFits(filename)
+    if oi.target in dargs["exclude_targets"]:
+        printinf("Excluding this target name: {}".format(oi.target))
+        continue
     oi.visOi = gravity.VisOiFits(filename, reduction = "astrored", mode = "dualfield", extension = int(dargs["extension"]))
     oi.ndit = oi.visOi.ndit
     oi.nwav = oi.visOi.nwav        

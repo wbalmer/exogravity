@@ -83,6 +83,8 @@ parser.add_argument("--ft_flux_threshold", metavar="THRESHOLD", type=float, defa
                     help="remove all dits/baselines with an ft flux below THRESH*MEAN(FT_FLUX_ON_STAR) (default 0.2)")
 parser.add_argument("--reflag", metavar="TRUE/FALSE", type=bool, default=False,
                      help="if set, use the REFLAG table to filter bad datapoints. Requires running the scriot twice! Default: false")  # deprecated?
+parser.add_argument("--exclude_targets", metavar="tgt1 tgt2 etc.", type=str, nargs="+", default = [],
+                     help="can be used to exclude some target names from the reduction")
 
 # for the OPD calculations on baselines
 parser.add_argument("--nopd", type=int, default=100,
@@ -104,7 +106,7 @@ parser.add_argument("--calib_strategy", metavar="STRATEGY", type=str, choices = 
 # switches for different behaviors
 parser.add_argument("--go_fast", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), nargs="?", const = True, default = False,
                     help="if set, average over DITs to accelerate calculations. Default: false")   
-parser.add_argument("--gradient", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), nargs="?", const = True, default = False,
+parser.add_argument("--gradient", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), nargs="?", const = True, default = True,
                      help="if set, improves the estimate of the location of chi2 minima by performing a gradient descent from the position on the map. Default: true")   
 parser.add_argument("--use_local", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), nargs="?", const = True, default = False,
                      help="if set, uses the local minima will be instead of global ones. Useful when dealing with multiple close minimums. Default: false")   
@@ -128,8 +130,8 @@ filenames = glob.glob("./*astroreduced.fits")
 # ignore files which are not dual-field
 filenames = [filename for filename in filenames if ("ESO INS SOBJ SWAP" in fits.open(filename)[0].header.keys())]
 headers = [fits.open(filename)[0].header for filename in filenames]
-all_targets = list(set([h["HIERARCH ESO OBS TARG NAME"] for h in headers]))
-swap_targets = list(set([h["HIERARCH ESO OBS TARG NAME"] for h in headers if (h["ESO INS SOBJ SWAP"] == "YES")]))
+all_targets = list(set([h["HIERARCH ESO OBS TARG NAME"] for h in headers if h["HIERARCH ESO OBS TARG NAME"] not in dargs["exclude_targets"]]))
+swap_targets = list(set([h["HIERARCH ESO OBS TARG NAME"] for h in headers if ((h["ESO INS SOBJ SWAP"] == "YES") and (h["HIERARCH ESO OBS TARG NAME"] not in dargs["exclude_targets"]))]))
 print(MSG_FORMAT.format("List of targets found in this directory: {}".format(" | ".join(all_targets))))
 print(MSG_FORMAT.format("List of SWAP targets found in this directory: {}".format(" | ".join(swap_targets))))                       
 not_swap_targets = list(set([target for target in all_targets if not(target in swap_targets)]))
@@ -159,8 +161,11 @@ exogravity.dargs = dargs
 if dargs["calib_strategy"] is None:
     exogravity.dargs["calib_strategy"] = "nearest"
 
+exogravity.dargs["exclude_targets"] = dargs["exclude_targets"]
+    
 # CASE 1: ON-AXIS
 if (dargs["swap_target"] is None):
+    print(MSG_FORMAT.format("Strategy identified: on-axis"))    
     # call create_config to create the proper cfg dictionnary
     print(MSG_FORMAT.format("At {}: entering create_config script".format(datetime.utcnow())))
     from exogravity import create_config
@@ -192,15 +197,15 @@ if (dargs["swap_target"] is None):
     
 # CASE 2: ON-AXIS WITH SWAP
 elif not(dargs["swap_target"] is None) and not(dargs["target"] is None):
+    print(MSG_FORMAT.format("Strategy identified: off-axis with swap calibration"))
     # call create_config to create the proper cfg dictionnary
     print(MSG_FORMAT.format("At {}: entering create_config script".format(datetime.utcnow())))
     from exogravity import create_config
     print(MSG_FORMAT.format("At {}: exiting create_config script".format(datetime.utcnow())))
-
     # now we can call the swap_reduce script
     # For this, we'll update a few configuration parameters
     if dargs["calib_strategy"] is None:
-        exogravity.cfg["general"]["calib_strategy"] = "self" 
+        exogravity.cfg["general"]["calib_strategy"] = "self"         
     print(MSG_FORMAT.format("At {}: entering swap_reduce script".format(datetime.utcnow())))
     from exogravity import swap_reduce    
     print(MSG_FORMAT.format("At {}: exiting swap_reduce script".format(datetime.utcnow())))    
@@ -234,6 +239,7 @@ elif not(dargs["swap_target"] is None) and not(dargs["target"] is None):
     
 # CASE 3: PURE SWAP
 elif not(dargs["swap_target"] is None) and (dargs["target"] is None):
+    print(MSG_FORMAT.format("Strategy identified: off-axis swap"))    
     # call create_config to create the proper cfg dictionnary
     print(MSG_FORMAT.format("At {}: entering create_config script".format(datetime.utcnow())))
     from exogravity import create_config
