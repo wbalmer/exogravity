@@ -27,6 +27,7 @@ except: # if ruamel not available, switch back to pyyaml, which does not handle 
     RUAMEL = False
 # argparse for command line arguments
 import argparse
+import distutils
 
 # create the parser for command lines arguments
 parser = argparse.ArgumentParser(description=
@@ -101,15 +102,15 @@ parser.add_argument("--calib_strategy", metavar="STRATEGY", type=str, choices = 
                     """)
 
 # switches for different behaviors
-parser.add_argument("--go_fast", metavar="EMPTY or TRUE/FALSE", type=bool, default=False, nargs="?", const=True,
+parser.add_argument("--go_fast", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), nargs="?", const = True, default = False,
                     help="if set, average over DITs to accelerate calculations. Default: false")   
-parser.add_argument("--gradient", metavar="EMPTY or TRUE/FALSE", type=bool, default=True,  nargs="?", const=True,
+parser.add_argument("--gradient", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), nargs="?", const = True, default = False,
                      help="if set, improves the estimate of the location of chi2 minima by performing a gradient descent from the position on the map. Default: true")   
-parser.add_argument("--use_local", metavar="EMPTY or TRUE/FALSE", type=bool, default=False,  nargs="?", const=True,
+parser.add_argument("--use_local", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), nargs="?", const = True, default = False,
                      help="if set, uses the local minima will be instead of global ones. Useful when dealing with multiple close minimums. Default: false")   
-parser.add_argument("--noinv", metavar="EMPTY or TRUE/FALSE", type=bool, default=False,  nargs="?", const=True,
+parser.add_argument("--noinv", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), nargs="?", const = True, default = False,
                      help="if set, avoid inversion of the covariance matrix and replace it with a gaussian elimination approach. DEPRECATED. Default: false")  # deprecated?
-parser.add_argument("--save_residuals", metavar="EMPTY or TRUE/FALSE", type=bool, default=False,  nargs="?", const=True,
+parser.add_argument("--save_residuals", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), nargs="?", const = True, default = False,
                      help="if set, saves fit residuals as npy files for further inspection. mainly a DEBUG option. Default: false")
 
 # load arguments into a dictionnary
@@ -127,13 +128,15 @@ filenames = glob.glob("./*astroreduced.fits")
 # ignore files which are not dual-field
 filenames = [filename for filename in filenames if ("ESO INS SOBJ SWAP" in fits.open(filename)[0].header.keys())]
 headers = [fits.open(filename)[0].header for filename in filenames]
-all_targets = list(set([h["OBJECT"] for h in headers]))
-swap_targets = list(set([h["OBJECT"] for h in headers if (h["ESO INS SOBJ SWAP"] == "YES")]))
+all_targets = list(set([h["HIERARCH ESO OBS TARG NAME"] for h in headers]))
+swap_targets = list(set([h["HIERARCH ESO OBS TARG NAME"] for h in headers if (h["ESO INS SOBJ SWAP"] == "YES")]))
+print(MSG_FORMAT.format("List of targets found in this directory: {}".format(" | ".join(all_targets))))
+print(MSG_FORMAT.format("List of SWAP targets found in this directory: {}".format(" | ".join(swap_targets))))                       
 not_swap_targets = list(set([target for target in all_targets if not(target in swap_targets)]))
 pola = list(set([h["ESO INS POLA MODE"].lower() for h in headers]))
 if "split" in pola:
     if not(dargs["extension"] in [11, 12]):
-        print(MSG_FORMAT.format("The data appears to be in 'SPLIT' polarisation. Please specify which extension to reduce (--extension 11 or 12)"))
+        print(MSG_FORMAT.format("The data appears to be in 'SPLIT' polarisation. Please specify which extension to reduce (--extension 11 or 12)"))      
         sys.exit()
 
 # we can only deal with one target of each. Just take the first one if not explicitly given by user

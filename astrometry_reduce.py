@@ -34,6 +34,7 @@ import scipy.sparse, scipy.sparse.linalg
 from scipy.linalg import lapack
 # argparse for command line arguments
 import argparse
+import distutils
 
 # create the parser for command lines arguments
 parser = argparse.ArgumentParser(description=
@@ -48,16 +49,16 @@ parser.add_argument('config_file', type=str, help="the path the to YAML configur
 parser.add_argument("--figdir", metavar="DIR", type=str, default=argparse.SUPPRESS,
                     help="name of a directory where to store the output PDF files [overrides value from yml file]")   
 
-parser.add_argument("--go_fast", metavar="EMPTY or TRUE/FALSE", type=bool, nargs="?", default=argparse.SUPPRESS, const = True,
+parser.add_argument("--go_fast", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=argparse.SUPPRESS, nargs="?", const = True,
                     help="if set, average over DITs to accelerate calculations. [overrides value from yml file]")   
 
-parser.add_argument("--gradient", metavar="EMPTY or TRUE/FALSE", type=bool, default=argparse.SUPPRESS, nargs="?", const = True,
+parser.add_argument("--gradient", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=argparse.SUPPRESS, nargs="?", const = True,
                      help="if set, improves the estimate of the location of chi2 minima by performing a gradient descent from the position on the map. [overrides value from yml file]")   
 
-parser.add_argument("--use_local", metavar="EMPTY or TRUE/FALSE", type=bool, default=argparse.SUPPRESS, nargs="?", const = True,
+parser.add_argument("--use_local", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=argparse.SUPPRESS, nargs="?", const = True,
                      help="if set, uses the local minima will be instead of global ones. Useful when dealing with multiple close minimums. [overrides value from yml file]")  
  
-parser.add_argument("--save_residuals", metavar="EMPTY or TRUE/FALSE", type=bool, default=argparse.SUPPRESS, nargs="?", const = True,
+parser.add_argument("--save_residuals", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=argparse.SUPPRESS, nargs="?", const = True,
                      help="if set, saves fit residuals as npy files for further inspection. mainly a DEBUG option. [overrides value from yml file]")
 
 # for the astrometry map
@@ -369,8 +370,11 @@ if ZOOM > 0:
                     raBests_initguess[k] = ra
                     decBests_initguess[k] = dec
     # extract init astrometric guess and get the limits of the zoomed map
-    ra_initguess = np.mean(raBests_initguess)
-    dec_initguess = np.mean(decBests_initguess)
+#    ra_initguess = np.mean(raBests_initguess)
+#    dec_initguess = np.mean(decBests_initguess)
+    ind = np.where(chi2Maps_initguess.sum(axis = 0) == np.min(chi2Maps_initguess.sum(axis = 0)))
+    ra_initguess = raValues_initguess[ind[0][0]]
+    dec_initguess = decValues_initguess[ind[1][0]]    
     RA_LIM = [ra_initguess-(RA_LIM[1]-RA_LIM[0])/(2*ZOOM), ra_initguess+(RA_LIM[1]-RA_LIM[0])/(2*ZOOM)]
     DEC_LIM = [dec_initguess-(DEC_LIM[1]-DEC_LIM[0])/(2*ZOOM), dec_initguess+(DEC_LIM[1]-DEC_LIM[0])/(2*ZOOM)]
         

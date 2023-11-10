@@ -6,11 +6,6 @@ This script is part of the exoGravity data reduction package.
 The normalize_spectrum_spectrum is used to normalize a spectrum to a given K band magnitude (ESO filter)
 using a given stellar model.
 
-Args:
-  file: the path the to fits file containing the contrast spectrum
-  file_model: the path to the stellar model to use
-  mag_k: the K band magnitude of the star (ESO filer)
-
 Example:
   python normalize_spectrum file=full/path/to/spectrum.fits file_mode=modelspectrum.dat mag_k=3.86
 
@@ -38,42 +33,46 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages        
-import species
-from PyPDF2 import PdfFileReader, PdfFileWriter
+import argparse
+# species is too long to import, so import it later to not wait a long time with bad args
+# import species 
+
 
 whereami = os.path.realpath(__file__).replace("normalize_spectrum.py", "")
 
-# load aguments into a dictionnary
-dargs = args_to_dict(sys.argv)
+# create the parser for command lines arguments
+parser = argparse.ArgumentParser(description=
+"""
+Convert a contrast spectrum to flux using a model spectrum of the star fitted on a given set of magnitudes
+""")
 
-if "help" in dargs.keys():
-    print(__doc__)
-    stop()
+# required arguments are the path to the folder containing the data, and the path to the config yml file to write 
+parser.add_argument('file', type=str, help="the path the to spectrum fits file")
 
-# arg should be the path to the spectrum
-REQUIRED_ARGS = ["file", "config_file"]
-for req in REQUIRED_ARGS:
-    if not(req in dargs.keys()):
-        printerr("Argument '"+req+"' is not optional for this script. Required args are: "+', '.join(REQUIRED_ARGS))
-        stop()
+# required arguments are the path to the folder containing the data, and the path to the config yml file to write 
+parser.add_argument('config_file', type=str, help="the path the to YML file containing the parameters for normalisation")
 
-CONFIG_FILE = dargs["config_file"]
-if not(os.path.isfile(CONFIG_FILE)):
-    raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))        
-# READ THE CONFIGURATION FILE
-if RUAMEL:
-    cfg = ruamel.yaml.load(open(CONFIG_FILE, "r"), Loader=ruamel.yaml.RoundTripLoader)
-else:
-    cfg = yaml.safe_load(open(CONFIG_FILE, "r"))
+
+# IF BEING RUN AS A SCRIPT, LOAD COMMAND LINE ARGUMENTS
+if __name__ == "__main__":    
+    # load arguments into a dictionnary
+    args = parser.parse_args()
+    dargs = vars(args) # to treat as a dictionnary
+
+    CONFIG_FILE = dargs["config_file"]
+    if not(os.path.isfile(CONFIG_FILE)):
+        raise Exception("Error: argument {} is not a file".format(CONFIG_FILE))
     
-if not("notitle" in dargs):
-    dargs["notitle"] = False
-if not("noerr" in dargs):
-    dargs["noerr"] = False
-if not("cov" in dargs):
-    dargs["cov"] = False        
+    # READ THE CONFIGURATION FILE
+    if RUAMEL:
+        cfg = ruamel.yaml.load(open(CONFIG_FILE, "r"), Loader=ruamel.yaml.RoundTripLoader)
+    else:
+        cfg = yaml.safe_load(open(CONFIG_FILE, "r"))
 
-    
+
+# species takes a while to load, so only import it now
+import species
+
 FIGDIR = cfg["general"]["figdir"]
     
 calib_dict = cfg["spectral_calibration"]
@@ -155,10 +154,9 @@ mag_post = []
 for filt in calib_dict["magnitudes"].keys():
     phot_mag = database.get_mcmc_photometry(tag=calib_dict["star_name"], burnin = 1000, filter_name=filt, phot_type="magnitude")
     mag_post.append(phot_mag)
-    
-# plot useful debug info in PDF
-fig = species.plot_posterior(tag=calib_dict["star_name"], offset=(-0.3, -0.3), output=FIGDIR+"/species_spectral_calibration_results.pdf")
 
+fig = species.plot_posterior(tag=calib_dict["star_name"], offset=(-0.3, -0.3))
+    
 # create temp pdf to add to species pdf
 with PdfPages(FIGDIR+"/spectral_calibration_results.pdf") as pdf:
     pdf.savefig(fig)
@@ -205,3 +203,28 @@ with PdfPages(FIGDIR+"/spectral_calibration_results.pdf") as pdf:
     pdf.savefig(fig)
     plt.close(fig)
 
+    best = database.get_median_sample(tag=calib_dict["star_name"])
+    read_model = species.ReadModel(model=calib_dict["model"], wavel_range=None)
+    modelbox = read_model.get_model(model_param=best, spec_res=500., smooth=True)
+    objectbox = database.get_object(object_name=calib_dict["star_name"], inc_phot=True, inc_spec=False)
+    objectbox = species.update_objectbox(objectbox=objectbox, model_param=best)
+    synphot = species.multi_photometry(datatype='model', spectrum=calib_dict["model"], filters=objectbox.filters, parameters=best)
+    phot_values = np.array([val[0] for val in objectbox.flux.values()])
+    fig = species.plot_spectrum(boxes=[modelbox, objectbox, synphot], filters=objectbox.filters,
+                                plot_kwargs=[
+                                    {'ls': '-', 'lw': 1., 'color': 'black'},
+                                    None,
+                                    None],
+                                xlim = (0.4, 4.0),
+                                offset=(-0.4, -0.05),                                
+                                ylim = (phot_values.min()/10.0, phot_values.max()*10.0),
+                                scale=('linear', 'log'),
+                                legend=[{'loc': 'lower left', 'frameon': False, 'fontsize': 11.},
+                                        {'loc': 'upper right', 'frameon': False, 'fontsize': 12.}],
+                                figsize=(8., 4.),
+                                quantity='flux density',
+                                output="test.pdf")
+    for ax in fig.axes:
+        ax.get_gridspec().update(left=0.1, bottom=0.2, right=0.95, top=0.93)
+    pdf.savefig(fig)
+    plt.close(fig)    

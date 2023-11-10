@@ -34,6 +34,7 @@ except: # if ruamel not available, switch back to pyyaml, which does not handle 
 import sys, os
 # argparse for command line arguments
 import argparse
+import distutils
 
 # create the parser for command lines arguments
 parser = argparse.ArgumentParser(description=
@@ -51,10 +52,10 @@ parser.add_argument('output', type=str, help="the name of output fits file where
 parser.add_argument("--figdir", metavar="DIR", type=str, default=argparse.SUPPRESS,
                     help="name of a directory where to store the output PDF files [overrides value from yml file]")   
 
-parser.add_argument("--go_fast", metavar="EMPTY or TRUE/FALSE", type=bool, default=argparse.SUPPRESS, nargs="?", const = True,
+parser.add_argument("--go_fast", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=argparse.SUPPRESS, nargs="?", const = True,
                     help="if set, average over DITs to accelerate calculations. [overrides value from yml file]")   
 
-parser.add_argument("--save_residuals", metavar="EMPTY or TRUE/FALSE", type=bool, default=argparse.SUPPRESS, nargs="?", const = True,
+parser.add_argument("--save_residuals", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=argparse.SUPPRESS, nargs="?", const = True,
                      help="if set, saves fit residuals as npy files for further inspection. mainly a DEBUG option. [overrides value from yml file]")
 
 # IF BEING RUN AS A SCRIPT, LOAD COMMAND LINE ARGUMENTS
@@ -78,6 +79,7 @@ if __name__ == "__main__":
         if key in cfg["general"]:
             cfg["general"][key] = dargs[key]
 
+print(args)
 
 # IF THIS FILE IS RUNNING AS A MODULE, WE WILL TAKE CONFIGURATION FILE FROM THE PARENT MODULE
 if __name__ != "__main__":
@@ -92,7 +94,7 @@ DATA_DIR = cfg["general"]["datadir"]
 PHASEREF_MODE = cfg["general"]["phaseref_mode"]
 CONTRAST_FILE = cfg["general"]["contrast_file"]
 NO_INV = cfg["general"]["noinv"]
-GO_FAST = cfg["general"]["gofast"]
+GO_FAST = cfg["general"]["go_fast"]
 REFLAG = cfg['general']['reflag']
 FIGDIR = cfg["general"]["figdir"]
 PLANET_FILES = [DATA_DIR+cfg["planet_ois"][list(preduce.keys())[0]]["filename"] for preduce in cfg["general"]["reduce_planets"]] # list of files corresponding to planet observations
@@ -113,14 +115,6 @@ REDUCTION = cfg["general"]["reduction"]
 PHASEREF_ARCLENGTH_THRESHOLD = cfg["general"]["phaseref_arclength_threshold"]
 FT_FLUX_THRESHOLD = cfg["general"]["ft_flux_threshold"]
 
-# OVERWRITE SOME OF THE CONFIGURATION VALUES WITH ARGUMENTS FROM COMMAND LINE
-if "gofast" in dargs.keys():
-    GO_FAST = dargs["gofast"].lower()=="true" # bypass value from config file
-if "reflag" in dargs.keys():
-    REFLAG = dargs["reflag"].lower()=="true" # bypass value from config file
-if "noinv" in dargs.keys():
-    NO_INV = dargs["noinv"].lower()=="true" # bypass value from config file    
-
 # FIGDIR is now a compulsory keyword. Throw an error if it is not in the config file
 if FIGDIR is None:
     printerr("figdir not given in the config file. figdir is now required")
@@ -138,7 +132,7 @@ if not(FIGDIR is None):
         printinf("Directory {} was not found and has been created".format(FIGDIR))
 
 # THROW AN ERROR IF save_residuals requested, but not FIGDIR provided
-if dargs['save_residuals'] and (FIGDIR is None):
+if cfg["general"]['save_residuals'] and (FIGDIR is None):
     printerr("save_residuals option requested, but not figdir provided.")
         
 # extract the astrometric solutions
@@ -575,7 +569,7 @@ if not(FIGDIR is None):
             gPlot.reImPlot(w, oi.visOi.visPlanetFit.mean(axis = 0)*np.exp(-1j*np.angle(visRefs[k])), fig = fig)
             pdf.savefig()           
     
-if dargs['save_residuals']:    
+if cfg["general"]['save_residuals']:    
     for k in range(len(objOis)):
         oi = objOis[k]
         name = oi.filename.split('/')[-1].split('.fits')[0]

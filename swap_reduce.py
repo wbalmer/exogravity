@@ -32,6 +32,7 @@ import scipy.optimize
 import itertools
 # argparse for command line arguments
 import argparse
+import distutils
 
 # create the parser for command lines arguments
 parser = argparse.ArgumentParser(description=
@@ -46,16 +47,16 @@ parser.add_argument('config_file', type=str, help="the path the to YAML configur
 parser.add_argument("--figdir", metavar="DIR", type=str, default=argparse.SUPPRESS,
                     help="name of a directory where to store the output PDF files [overrides value from yml file]")   
 
-parser.add_argument("--go_fast", metavar="EMPTY or TRUE/FALSE", type=bool, nargs="?", default=argparse.SUPPRESS, const = True,
+parser.add_argument("--go_fast", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=argparse.SUPPRESS, nargs="?", const = True,
                     help="if set, average over DITs to accelerate calculations. [overrides value from yml file]")   
 
-parser.add_argument("--gradient", metavar="EMPTY or TRUE/FALSE", type=bool, default=argparse.SUPPRESS, nargs="?", const = True,
+parser.add_argument("--gradient", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=argparse.SUPPRESS, nargs="?", const = True,
                      help="if set, improves the estimate of the location of chi2 minima by performing a gradient descent from the position on the map. [overrides value from yml file]")   
 
-parser.add_argument("--use_local", metavar="EMPTY or TRUE/FALSE", type=bool, default=argparse.SUPPRESS, nargs="?", const = True,
+parser.add_argument("--use_local", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=argparse.SUPPRESS, nargs="?", const = True,
                      help="if set, uses the local minima will be instead of global ones. Useful when dealing with multiple close minimums. [overrides value from yml file]")  
  
-parser.add_argument("--save_residuals", metavar="EMPTY or TRUE/FALSE", type=bool, default=argparse.SUPPRESS, nargs="?", const = True,
+parser.add_argument("--save_residuals", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=argparse.SUPPRESS, nargs="?", const = True,
                      help="if set, saves fit residuals as npy files for further inspection. mainly a DEBUG option. [overrides value from yml file]")
 
 # for the astrometry map

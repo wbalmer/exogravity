@@ -42,14 +42,11 @@ parser.add_argument('--fig', type=int,
 parser.add_argument('--color', type=str, default = "orange",
                     help="color for the plot (must be a valid python color string). Default: orange")
 
-# load arguments into a dictionnary
-args = parser.parse_args()
-dargs = vars(args) # to treat as a dictionnary
-
 whereami = os.path.realpath(__file__).replace("plot_spectrum.py", "")
 
 # load aguments into a dictionnary
-dargs = args_to_dict(sys.argv)
+args = parser.parse_args()
+dargs = vars(args) # to treat as a dictionnary
 
 wav, flux, fluxCov, contrast, contrastCov = loadFitsSpectrum(dargs['file'])
 
