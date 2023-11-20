@@ -114,6 +114,8 @@ parser.add_argument("--noinv", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool
                      help="if set, avoid inversion of the covariance matrix and replace it with a gaussian elimination approach. DEPRECATED. Default: false")  # deprecated?
 parser.add_argument("--save_residuals", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), nargs="?", const = True, default = False,
                      help="if set, saves fit residuals as npy files for further inspection. mainly a DEBUG option. Default: false")
+parser.add_argument("--extract_spectrum", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), nargs="?", const = True, default = False,
+                     help="if set, also run the spectrum extraction step after the astrometry reduction. Default: false")
 
 # load arguments into a dictionnary
 args = parser.parse_args()
@@ -182,6 +184,7 @@ if (dargs["swap_target"] is None):
     print(MSG_FORMAT.format("At {}: exiting astrometry_reduce script".format(datetime.utcnow())))
 
     # print the solution. For this we need to collect all individula solutions and take the mean + error bars
+    mjd = [exogravity.cfg["planet_ois"][list(preduce.keys())[0]]["mjd"] for preduce in exogravity.cfg["general"]["reduce_planets"]]        
     ra = [preduce[list(preduce.keys())[0]]["astrometric_solution"][0] for preduce in exogravity.cfg["general"]["reduce_planets"]]
     dec = [preduce[list(preduce.keys())[0]]["astrometric_solution"][1] for preduce in exogravity.cfg["general"]["reduce_planets"]]
     cov_mat = np.cov(ra, dec)/len(ra)
@@ -190,10 +193,16 @@ if (dargs["swap_target"] is None):
     ra_std = cov_mat[0, 0]**0.5
     dec_std = cov_mat[1, 1]**0.5
     rho = cov_mat[0, 1]/(ra_std*dec_std)
+    print(MSG_FORMAT.format( "Mean mjd of observation: {}".format(np.mean(np.array(mjd)))))
     print(MSG_FORMAT.format( "Astrometric solution: RA={} mas, DEC={} mas".format(ra_best, dec_best)))
     print(MSG_FORMAT.format( "Errors: stdRA={} mas, stdDEC={} mas, rho={}".format(ra_std, dec_std, rho)))
 
-
+    if dargs["extract_spectrum"]:
+        print(MSG_FORMAT.format("At {}: entering spectrum_reduce script".format(datetime.utcnow())))
+        from exogravity import spectrum_reduce
+        print(MSG_FORMAT.format("At {}: exiting spectrum_reduce script".format(datetime.utcnow())))
+        print(MSG_FORMAT.format("At {}: spectrum now available in {}/spectrum.fits".format(datetime.utcnow(), dargs["figdir"])))
+        
     
 # CASE 2: ON-AXIS WITH SWAP
 elif not(dargs["swap_target"] is None) and not(dargs["target"] is None):
@@ -224,6 +233,7 @@ elif not(dargs["swap_target"] is None) and not(dargs["target"] is None):
     print(MSG_FORMAT.format("At {}: exiting astrometry_reduce script".format(datetime.utcnow())))
 
     # print the solution. For this we need to collect all individula solutions and take the mean + error bars
+    mjd = [exogravity.cfg["planet_ois"][list(preduce.keys())[0]]["mjd"] for preduce in exogravity.cfg["general"]["reduce_planets"]]        
     ra = [preduce[list(preduce.keys())[0]]["astrometric_solution"][0] for preduce in exogravity.cfg["general"]["reduce_planets"]]
     dec = [preduce[list(preduce.keys())[0]]["astrometric_solution"][1] for preduce in exogravity.cfg["general"]["reduce_planets"]]
     cov_mat = np.cov(ra, dec)/len(ra)    
@@ -232,6 +242,7 @@ elif not(dargs["swap_target"] is None) and not(dargs["target"] is None):
     ra_std = cov_mat[0, 0]**0.5
     dec_std = cov_mat[1, 1]**0.5
     rho = cov_mat[0, 1]/(ra_std*dec_std)
+    print(MSG_FORMAT.format( "Mean mjd of observation: {}".format(np.mean(np.array(mjd)))))    
     print(MSG_FORMAT.format( "Astrometric solution: RA={} mas, DEC={} mas".format(ra_best, dec_best)))
     print(MSG_FORMAT.format( "Errors: stdRA={} mas, stdDEC={} mas, rho={}".format(ra_std, dec_std, rho)))
 
@@ -254,7 +265,9 @@ elif not(dargs["swap_target"] is None) and (dargs["target"] is None):
     print(MSG_FORMAT.format("At {}: exiting swap_reduce script".format(datetime.utcnow())))
 
     # Print the astrometric solution. For swap, the stored solution is identical for all files, so just print the first one
+    mjd = [exogravity.cfg["swap_ois"][key]["mjd"] for key in list(exogravity.cfg["swap_ois"].keys())]
     key = list(exogravity.cfg["swap_ois"].keys())[0]
+    print(MSG_FORMAT.format( "Mean mjd of observation: {}".format(np.mean(np.array(mjd)))))    
     print(MSG_FORMAT.format( "Astrometric solution: RA={} mas, DEC={} mas".format(*exogravity.cfg["swap_ois"][key]["astrometric_solution"]) ))
     print(MSG_FORMAT.format( "Errors: stdRA={} mas, stdDEC={} mas, rho={}".format(*exogravity.cfg["swap_ois"][key]["errors"]) ))
 

@@ -32,14 +32,14 @@ parser.add_argument('output', type=str, help="the name of output fits file where
 # load arguments into a dictionnary
 args = parser.parse_args()
 dargs = vars(args) # to treat as a dictionnary
-        
-filenames = dargs["files"].split(',')
+
+filenames = dargs["files"]
 nfiles = len(filenames)
 printinf("Combining a total of {} spectra".format(nfiles))
 
 wav_tot, flux_tot, fluxCov_tot, contrast_tot, contrastCov_tot = loadFitsSpectrum(filenames[0])
-fluxCovInv_tot = np.linalg.inv(fluxCov_tot)
-contrastCovInv_tot = np.linalg.inv(contrastCov_tot)
+fluxCovInv_tot = np.linalg.pinv(fluxCov_tot)
+contrastCovInv_tot = np.linalg.pinv(contrastCov_tot)
 
 flux_tot = np.dot(fluxCovInv_tot, flux_tot)
 contrast_tot = np.dot(contrastCovInv_tot, contrast_tot)
@@ -52,15 +52,15 @@ for k in range(1, nfiles):
     if np.sum((wav - wav_tot)**2)>0:
         printerr("The wavelength sequences are not the same in all spectra. Cannot calculate the combined spectra.")
         stop()
-    fluxCovInv = np.linalg.inv(fluxCov)
-    contrastCovInv = np.linalg.inv(contrastCov)
+    fluxCovInv = np.linalg.pinv(fluxCov)
+    contrastCovInv = np.linalg.pinv(contrastCov)
     flux_tot = flux_tot + np.dot(fluxCovInv, flux)
     contrast_tot = contrast_tot + np.dot(contrastCovInv, contrast)
     fluxCovInv_tot = fluxCovInv_tot + fluxCovInv
     contrastCovInv_tot = contrastCovInv_tot + contrastCovInv    
 
-fluxCov_tot = np.linalg.inv(fluxCovInv_tot)    
-contrastCov_tot = np.linalg.inv(contrastCovInv_tot)
+fluxCov_tot = np.linalg.pinv(fluxCovInv_tot)    
+contrastCov_tot = np.linalg.pinv(contrastCovInv_tot)
 
 flux_tot = np.dot(fluxCov_tot, flux_tot)
 contrast_tot = np.dot(contrastCov_tot, contrast_tot)

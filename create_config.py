@@ -99,7 +99,7 @@ parser.add_argument("--phaseref_arclength_threshold", metavar="THRESHOLD", type=
                     help="remove all dit/baseline with an arclength of the phaseref polyfit larger this threshold. Default: 5")
 parser.add_argument("--ft_flux_threshold", metavar="THRESHOLD", type=float, default = 0.2,
                     help="remove all dits/baselines with an ft flux below THRESH*MEAN(FT_FLUX_ON_STAR) (default 0.2)")
-parser.add_argument("--reflag", metavar="TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=argparse.SUPPRESS, nargs="?", const = True,
+parser.add_argument("--reflag", metavar="TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=False, nargs="?", const = True,
                      help="if set, use the REFLAG table to filter bad datapoints. Requires running the scriot twice! Default: false")  # deprecated?
 parser.add_argument("--exclude_targets", metavar="tgt1 tgt2 etc.", type=str, nargs="+", default = [],
                      help="can be used to exclude some target names from the reduction")
@@ -122,15 +122,15 @@ parser.add_argument("--calib_strategy", metavar="STRATEGY", type=str, default = 
                     """)
 
 # switches for different behaviors
-parser.add_argument("--go_fast", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=argparse.SUPPRESS, nargs="?", const = True,
+parser.add_argument("--go_fast", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=False, nargs="?", const = True,
                     help="if set, average over DITs to accelerate calculations. Default: false")   
-parser.add_argument("--gradient", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=argparse.SUPPRESS, nargs="?", const = True,
+parser.add_argument("--gradient", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=True, nargs="?", const = True,
                      help="if set, improves the estimate of the location of chi2 minima by performing a gradient descent from the position on the map. Default: true")   
-parser.add_argument("--use_local", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=argparse.SUPPRESS, nargs="?", const = True,
+parser.add_argument("--use_local", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=False, nargs="?", const = True,
                      help="if set, uses the local minima will be instead of global ones. Useful when dealing with multiple close minimums. Default: false")   
-parser.add_argument("--noinv", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=argparse.SUPPRESS, nargs="?", const = True,
+parser.add_argument("--noinv", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=False, nargs="?", const = True,
                      help="if set, avoid inversion of the covariance matrix and replace it with a gaussian elimination approach. DEPRECATED. Default: false")  # deprecated?
-parser.add_argument("--save_residuals", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=argparse.SUPPRESS, nargs="?", const = True,
+parser.add_argument("--save_residuals", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=False, nargs="?", const = True,
                      help="if set, saves fit residuals as npy files for further inspection. mainly a DEBUG option. Default: false")
 
 

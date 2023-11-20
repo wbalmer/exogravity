@@ -19,9 +19,10 @@ import astropy.io.fits as fits
 import cleanGravity as gravity
 from cleanGravity import complexstats as cs
 from cleanGravity.utils import loadFitsSpectrum, saveFitsSpectrum
-from utils import * # utils from this exooGravity package
-from common import *
+from exogravity.utils import * # utils from this exooGravity package
+from exogravity.common import *
 # other random stuffs
+from astropy.time import Time
 import glob
 import itertools
 # ruamel to read config yml file
@@ -45,9 +46,6 @@ Extract contrast spectrum from an exoGravity observation
 # required arguments are the path to the folder containing the data, and the path to the config yml file to write 
 parser.add_argument('config_file', type=str, help="the path the to YAML configuration file.")
 
-# required arguments are the path to the folder containing the data, and the path to the config yml file to write 
-parser.add_argument('output', type=str, help="the name of output fits file where to save the spectrum.")
-
 # some elements from the config file can be overridden with command line arguments
 parser.add_argument("--figdir", metavar="DIR", type=str, default=argparse.SUPPRESS,
                     help="name of a directory where to store the output PDF files [overrides value from yml file]")   
@@ -57,6 +55,9 @@ parser.add_argument("--go_fast", metavar="EMPTY or TRUE/FALSE", type=lambda x:bo
 
 parser.add_argument("--save_residuals", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=argparse.SUPPRESS, nargs="?", const = True,
                      help="if set, saves fit residuals as npy files for further inspection. mainly a DEBUG option. [overrides value from yml file]")
+
+parser.add_argument('--output', type=str, default="spectrum.fits", help="the name of output fits file where to save the spectrum.")
+
 
 # IF BEING RUN AS A SCRIPT, LOAD COMMAND LINE ARGUMENTS
 if __name__ == "__main__":   
@@ -79,17 +80,18 @@ if __name__ == "__main__":
         if key in cfg["general"]:
             cfg["general"][key] = dargs[key]
 
-print(args)
-
+    SPECTRUM_FILENAME = dargs["output"]
+    
 # IF THIS FILE IS RUNNING AS A MODULE, WE WILL TAKE CONFIGURATION FILE FROM THE PARENT MODULE
 if __name__ != "__main__":
     import exogravity
     cfg = exogravity.cfg
+    SPECTRUM_FILENAME = "spectrum.fits"
+
 
 #######################
 # START OF THE SCRIPT #
 #######################
-SPECTRUM_FILENAME = dargs["output"]
 DATA_DIR = cfg["general"]["datadir"]
 PHASEREF_MODE = cfg["general"]["phaseref_mode"]
 CONTRAST_FILE = cfg["general"]["contrast_file"]
@@ -139,9 +141,7 @@ if cfg["general"]['save_residuals'] and (FIGDIR is None):
 try:
     RA_SOLUTIONS = [preduce[list(preduce.keys())[0]]["astrometric_solution"][0] for preduce in cfg["general"]["reduce_planets"]]
     DEC_SOLUTIONS = [preduce[list(preduce.keys())[0]]["astrometric_solution"][1] for preduce in cfg["general"]["reduce_planets"]]
-    printinf("Astrometry extracted from config file {}".format(CONFIG_FILE))
 except:
-    printerr("Could not extract the astrometry from the config file {}".format(CONFIG_FILE))
     printinf("Please run the script 'astrometryReduce' first, or provide RA DEC values as arguments:")
     stop()
 
@@ -167,7 +167,7 @@ for filename in PLANET_FILES:
 
 if REFLAG:
     printinf("REFLAG is set, and points have been reflagged according to the REFLAG column of the fits file")
-    
+
 # filter data
 if REDUCTION == "astrored":
     # flag points based on FT value and phaseRef arclength
@@ -194,11 +194,10 @@ if REDUCTION == "astrored":
                 oi.visOi.flagPoints((a, b, c))
                 printinf("Ignoring some baselines in file {}".format(oi.filename))                
 
-# normalize by FT flux to get rid of atmospheric transmission variations
-#printinf("Normalizing visibilities to FT coherent flux.")
-#for oi in objOis+starOis:
-#    oi.visOi.scaleVisibilities(1.0/np.abs(oi.visOi.visDataFt).mean(axis = -1))
-
+printinf("Normalizing on-star visibilities to FT coherent flux.")
+for oi in objOis:
+    oi.visOi.scaleVisibilities(1.0/np.abs(oi.visOi.visDataFt).mean(axis = -1))
+    
 # replace data by the mean over all DITs if go_fast has been requested in the config file
 if (GO_FAST):
     printinf("gofast flag is set. Averaging over DITs")            
@@ -474,10 +473,15 @@ Cerr = np.dot(B, np.dot(0.5*np.real(covY2+pcovY2), B.T))
 
 # save raw contrast spectrum and diagonal error terms in a file
 printinf("Writting spectrum in FITS file")
-# get header info
-date_obs = objOis[0].datetime + np.mean(np.array([oi.datetime-objOis[0].datetime for oi in objOis]))
-mjd = np.mean(np.array([oi.mjd for oi in objOis]))
-resolution_mode = fits.open(objOis[0].filename)[0].header["HIERARCH ESO INS SPEC RES"].lstrip().rstrip().lower()
+# build header 
+headers = []
+for filename in [cfg["general"]["datadir"]+"/"+cfg["planet_ois"][pkey]["filename"] for pkey in list(cfg["planet_ois"].keys())]:
+    headers.append(fits.open(filename)[0].header)    
+obstimes = [Time(hdr["DATE-OBS"]).mjd for hdr in headers]
+
+first = headers[np.argmin(obstimes)]
+last = headers[np.argmax(obstimes)]
+resolution_mode = first["HIERARCH ESO INS SPEC RES"].lstrip().rstrip().lower()
 if resolution_mode == "low":
     resolution = 50
 elif resolution_mode == "medium":
@@ -486,7 +490,21 @@ elif resolution_mode == "high":
     resolution = 4000
 else:
     resolution = None
-saveFitsSpectrum(FIGDIR+"/"+SPECTRUM_FILENAME, wav, C*0, Cerr*0, C, Cerr, resolution=resolution, mjd = mjd, date_obs = date_obs.isoformat(), name=objOis[0].sObjName)
+header = {"DATE-OBS": Time(np.mean(obstimes), format = "mjd").iso,
+          "INSTRU": "GRAVITY",
+          "FACILITY": "ESO VLTI",
+          "DATE": Time.now().iso,
+          "AIRM-BEG": first["HIERARCH ESO ISS AIRM START"],
+          "AIRM-END": last["HIERARCH ESO ISS AIRM END"],
+          "TAU0-BEG": first["HIERARCH ESO ISS AMBI TAU0 START"],
+          "TAU0-END": last["HIERARCH ESO ISS AMBI TAU0 END"],
+          "FWHM-BEG": first["HIERARCH ESO ISS AMBI FWHM START"],
+          "FWHM-END": last["HIERARCH ESO ISS AMBI FWHM END"],
+          "PROGID": first["HIERARCH ESO OBS PROG ID"],
+          "SPECRES": resolution,
+          "SNR": (np.dot(np.dot(C, np.linalg.pinv(Cerr)), C)/len(wav))**0.5
+          }
+saveFitsSpectrum(FIGDIR+"/"+SPECTRUM_FILENAME, wav, C*0, Cerr*0, C, Cerr, header = header)
 
 # now we want to recontruct the planet visibilities and the best fit obtained, in the original
 # pipeline reference frame. The idea is that we want to compare the residuals to the pipeline
@@ -498,8 +516,6 @@ for k in range(len(objOis)):
     oi.visOi.visPlanetFit = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex64")    
     for dit, c in itertools.product(range(oi.visOi.ndit), range(oi.visOi.nchannel)):
         oi.visOi.visPlanet[dit, c, :] = np.dot(oi.visOi.p_matrices[dit, c, :, :], oi.visOi.visRef[dit, c, :])
-#        oi.visOi.visPlanet[dit, c, -STAR_ORDER-1] = 0 # this projects orthogonally to the speckle noise
-#        oi.visOi.visPlanet[dit, c, :] = np.dot(cs.adj(oi.visOi.h_matrices[dit, c, :, :]), oi.visOi.visPlanet[dit, c, :])        
         oi.visOi.visPlanet[dit, c, :] = oi.visOi.visPlanet[dit, c, :]*np.exp(1j*np.angle(visRefs[k][c, :]))        
         oi.visOi.visPlanetFit[dit, c, :] = C*np.abs(visRefs[k])[c, :]
         bad_indices = np.where(oi.visOi.flag[dit, c, :])
@@ -518,7 +534,6 @@ for k in range(len(objOis)):
         imagErr = np.real(0.5*(np.diag(oi.visOi.visRefCov[dit, c].todense())-np.diag(oi.visOi.visRefPcov[dit, c].todense())))**0.5   
         oi.visOi.fitDistance[dit, c, :] = np.abs(np.real(oi.visOi.residuals[dit, c])/realErr+1j*np.imag(oi.visOi.residuals[dit, c])/imagErr)
 
-        
 # now we want to save a new flag to indicate which points are badly fitted. But ONLY if gofast is set to False (we can't flag point if the individual DITs have been binned)
 if (GO_FAST==False):
     printinf("Reflagging bad datapoints based on fit results (5 sigmas)")

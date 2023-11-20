@@ -52,6 +52,9 @@ parser.add_argument('file', type=str, help="the path the to spectrum fits file")
 # required arguments are the path to the folder containing the data, and the path to the config yml file to write 
 parser.add_argument('config_file', type=str, help="the path the to YML file containing the parameters for normalisation")
 
+# optional arguments
+parser.add_argument('--live_points', type=int, default = 300, help="number of live points to use in species fit.")
+
 
 # IF BEING RUN AS A SCRIPT, LOAD COMMAND LINE ARGUMENTS
 if __name__ == "__main__":    
@@ -88,7 +91,7 @@ for key in calib_dict["magnitudes"].keys():
 printinf("Loading contrast spectrum from {}".format(dargs["file"]))
 wav, flux, fluxCov, contrast, contrastCov = loadFitsSpectrum(dargs['file'])
 resolution = fits.open(dargs["file"])[0].header["SPECRES"]
-resolution = 506
+#resolution = 500
 
 # init SPECIES
 printinf("Initialising exogravity species instance")
@@ -116,7 +119,7 @@ except ValueError:
 
 # run multinest fit
 printinf("Running species multinest fit")
-fit.run_multinest(tag=calib_dict["star_name"], n_live_points=300, output=FIGDIR+'/spectral_calibration/', prior=None)
+fit.run_multinest(tag=calib_dict["star_name"], n_live_points=dargs["live_points"], output=FIGDIR+'/spectral_calibration/', prior=None)
 
 # extract samples and interpolating on proper grid
 printinf("Extracting posterior samples and interpolating on GRAVITY wavelength grid")
@@ -223,7 +226,7 @@ with PdfPages(FIGDIR+"/spectral_calibration_results.pdf") as pdf:
                                         {'loc': 'upper right', 'frameon': False, 'fontsize': 12.}],
                                 figsize=(8., 4.),
                                 quantity='flux density',
-                                output="test.pdf")
+                                output=None)
     for ax in fig.axes:
         ax.get_gridspec().update(left=0.1, bottom=0.2, right=0.95, top=0.93)
     pdf.savefig(fig)

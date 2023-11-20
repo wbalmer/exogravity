@@ -206,6 +206,10 @@ if REDUCTION == "astrored":
                 oi.visOi.flagPoints((a, b, c))
                 printinf("Ignoring some baselines in file {}".format(oi.filename))
 
+printinf("Normalizing on-star visibilities to FT coherent flux.")
+for oi in objOis:
+    oi.visOi.scaleVisibilities(1.0/np.abs(oi.visOi.visDataFt).mean(axis = -1))
+                
 # replace data by the mean over all DITs if go_fast has been requested in the config file
 if (GO_FAST):
     printinf("gofast flag is set. Averaging over DITs")            
@@ -248,7 +252,7 @@ for k in range(len(objOis)):
     printinf("Create projector matrices (p_matrices) ({}/{})".format(k+1, len(objOis)))
     # calculate the projector
     wav = oi.wav*1e6
-    vectors = np.zeros([POLY_ORDER+1, oi.nwav], 'complex64')
+    vectors = np.zeros([(POLY_ORDER+1), oi.nwav], 'complex64')
     thisVisRef = visRefs[k]
     thisAmpRef = np.abs(thisVisRef)
     oi.visOi.p_matrices = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav, oi.nwav], 'complex64')
@@ -452,7 +456,7 @@ if GRADIENT:
         opt = scipy.optimize.minimize(chi2, x0=[raGuesses[k], decGuesses[k]])
         raBests[k] = opt["x"][0]
         decBests[k] = opt["x"][1]
-        # from the Hessian matrix, we can also look for the fiducial error bars
+        # from the Hessian matrix, we can also look for the formal error bars
         ra_err = np.sqrt(opt["hess_inv"][0, 0])
         dec_err = np.sqrt(opt["hess_inv"][1, 1])        
         rho = opt["hess_inv"][0, 1]/np.sqrt(ra_err**2*dec_err**2)
@@ -593,7 +597,7 @@ if not(FIGDIR is None):
                 ax.plot([raGuesses[k], raBests[k]], [decGuesses[k], decBests[k]], "C2", linestyle = "dotted", label = l1, alpha = 0.6)
                 # the individual error ellipse derived from chi2
                 ra_err, dec_err, rho = formal_errors[k]
-                cov = np.array([[ra_err**2, rho*ra_err*dec_err], [rho*ra_err*dec_err, dec_err**2]]) # reconstruct covariance                
+                cov = 0*np.array([[ra_err**2, rho*ra_err*dec_err], [rho*ra_err*dec_err, dec_err**2]]) # reconstruct covariance                
                 val, vec = np.linalg.eig(cov)
                 e1=matplotlib.patches.Ellipse((raBests[k], decBests[k]), 2*val[0]**0.5, 2*val[1]**0.5, angle=np.arctan2(vec[0,1],-vec[1,1])/np.pi*180, fill=False, color='C2', linewidth=2, alpha = 0.6, linestyle='--', label = l2)       
                 ax.add_patch(e1)
@@ -752,11 +756,13 @@ if SAVE_RESIDUALS:
     for k in range(len(objOis)):
         oi = objOis[k]
         name = oi.filename.split('/')[-1].split('.fits')[0]
+        visRef = oi.visOi.visRef        
         visRef = oi.visOi.visRef
         visFitStar = bestFitStars[k]
         visFit = bestFits[k]
         flags = oi.visOi.flag
-        visFt = oi.visOi.visDataFt        
+        visFt = oi.visOi.visDataFt
+        np.save(FIGDIR+"/"+name+"_onstar.npy", visRefs[k])        
         np.save(FIGDIR+"/"+name+"_ref.npy", visRef)
         np.save(FIGDIR+"/"+name+"_fit.npy", visFit)
         np.save(FIGDIR+"/"+name+"_starfit.npy", visFitStar)

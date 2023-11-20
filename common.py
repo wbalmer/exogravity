@@ -19,7 +19,7 @@ from cleanGravity.utils import loadFitsSpectrum, saveFitsSpectrum
 from exogravity.utils import * # utils from this exooGravity package
 # other random stuffs
 import itertools
-
+    
 def filter_ftflux(oi, threshold):
     """ Filter points based on the value of the visDataFt coherent flux"""
     a, b = np.where(np.abs(oi.visOi.visDataFt).mean(axis = -1) < threshold)
@@ -29,7 +29,6 @@ def filter_ftflux(oi, threshold):
     if npoints > 0:
         printinf("A total of {} points have been flagged in {} (below FT threshold of {:.2e})".format(npoints, oi.filename, threshold))
     return None
-
 
 def filter_phaseref_arclength(oi, threshold):
     """ Filter points based on the total variations of the phaseRef fitted curve (measured through the arclength)"""
@@ -59,3 +58,5 @@ def findLocalMinimum(chi2Map, xstart, ystart, jump_size = 1):
             x = x+ind[0][0]-jump_size
             y = y+ind[1][0]-jump_size
     return x-jump_size, y-jump_size
+
+

@@ -170,6 +170,10 @@ if REDUCTION == "astrored":
     for oi in starOis:
         filter_ftflux(oi, ftThresholdStar)             
 
+printinf("Normalizing on-star visibilities to FT coherent flux.")
+for oi in starOis+objOis:
+    oi.visOi.scaleVisibilities(1.0/np.abs(oi.visOi.visDataFt).mean(axis = -1))
+        
 # calculate the very useful w for plotting
 if len(objOis) > 0:
     oi = objOis[0]
@@ -182,6 +186,7 @@ for c in range(oi.visOi.nchannel):
 # create the visibility reference. This step depends on PHASEREF_MODE (DF_STAR or DF_SWAP)
 printinf("Creating the visibility reference from {:d} star observations.".format(len(starOis)))
 visRefs = [oi.visOi.visRef.mean(axis=0)*0 for oi in objOis]
+
 
 # in DF_STAR mode, the phase reference of the star is used
 # IN DF_SWAP, we also need to go through this step to retrieve amplitude of the star for reference
@@ -204,7 +209,7 @@ if (PHASEREF_MODE == "DF_STAR") or (PHASEREF_MODE == "DF_SWAP"):
                 soi = starOis[starOis_ind]
                 visRef = visRef+soi.visOi.visRef.mean(axis = 0)
                 ampRef = ampRef+np.abs(soi.visOi.visRef.mean(axis = 0))
-            ampRef=ampRef/len(cfg["planet_ois"][planet_ind]["star_indices"])
+            ampRef = ampRef/len(cfg["planet_ois"][planet_ind]["star_indices"])
             visRefs[k] = ampRef*np.exp(1j*np.angle(visRef/len(cfg["planet_ois"][planet_ind]["star_indices"])))#/len(starOis))) ###===###
     
 # in DF_SWAP mode, the phase reference of the star cannot be used. We need to extract the phase ref from the SWAP observations
