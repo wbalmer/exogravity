@@ -56,6 +56,9 @@ parser.add_argument("--go_fast", metavar="EMPTY or TRUE/FALSE", type=lambda x:bo
 parser.add_argument("--save_residuals", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=argparse.SUPPRESS, nargs="?", const = True,
                      help="if set, saves fit residuals as npy files for further inspection. mainly a DEBUG option. [overrides value from yml file]")
 
+parser.add_argument("--add_wiggles", metavar="EMPTY or TRUE/FALSE", type=lambda x:bool(distutils.util.strtobool(x)), default=argparse.SUPPRESS, nargs="?", const = True,
+                     help="if set, add a fixed wiggle pattern to the model fit. [overrides value from yml file]")
+
 parser.add_argument('--output', type=str, default="spectrum.fits", help="the name of output fits file where to save the spectrum.")
 
 
@@ -196,7 +199,7 @@ if REDUCTION == "astrored":
 
 printinf("Normalizing on-star visibilities to FT coherent flux.")
 for oi in objOis:
-    oi.visOi.scaleVisibilities(1.0/np.abs(oi.visOi.visDataFt).mean(axis = -1))
+    oi.visOi.scaleVisibilities(oi.nwav/np.abs(oi.visOi.visDataFt).sum(axis = -1))
     
 # replace data by the mean over all DITs if go_fast has been requested in the config file
 if (GO_FAST):
@@ -216,18 +219,30 @@ for c in range(oi.visOi.nchannel):
 # calculate the reference visibility for each OB
 printinf("Retrieving visibility references from fits files")
 visRefs = [oi.visOi.visRef.mean(axis=0)*0 for oi in objOis]
+specklePhases = [oi.visOi.visRef.mean(axis=0)*0 for oi in objOis]
 for k in range(len(objOis)):
     oi = objOis[k]
+    specklePhases[k] = np.angle((oi.visOi.visRef).mean(axis = 0))
     try:
         visRefs[k] = fits.getdata(oi.filename, "EXOGRAV_VISREF").field("EXOGRAV_VISREF")
     except:
         printerr("Cannot find visibility reference (EXOGRAV_VISREF) in file {}".format(oi.filename))
-
+        
 # subtract the reference phase to each OB
 printinf("Subtracting phase reference to each planet OI.")
 for k in range(len(objOis)):
     oi = objOis[k]
     oi.visOi.addPhase(-np.angle(visRefs[k]))
+
+# add fake wiggles
+"""
+for k in range(len(objOis)):
+    oi = objOis[k]
+    for dit in range(oi.visOi.ndit):
+        for c in range(oi.visOi.nchannel):
+#            oi.visOi.visRef[dit, c, :] = 0*oi.visOi.visRef[dit, c, :] + np.abs(visRefs[k][c, :])/30*np.exp(1j*2*np.pi*100e-6/oi.wav)
+            oi.visOi.visRef[dit, c, :] = oi.visOi.visRef[dit, c, :] + oi.visOi.visRef[dit, c, :]/100*np.exp(1j*2*np.pi*100e-6/oi.wav)            
+"""
 
 # calculate the phi values
 printinf("Calculating the phi values")
@@ -264,6 +279,7 @@ for k in range(len(objOis)):
                 P[c, :, l] = x - np.dot(vectors.T, coeffs)
             oi.visOi.p_matrices[dit, c, :, :] = np.dot(np.diag(oi.visOi.phi_values[dit, c, :]), np.dot(P[c, :, :], np.diag(oi.visOi.phi_values[dit, c, :].conj())))
 
+            
 # change frame
 printinf("Switching on-planet visibilities to planet reference frame")
 for k in range(len(objOis)):
@@ -349,7 +365,10 @@ nwav = objOis[0].nwav
 nb = objOis[0].visOi.nchannel
 nt = len(objOis)
 mtot = int(np.sum([np.sum(oi.visOi.m) for oi in objOis]))
-H = np.zeros([mtot, nwav], 'complex64')
+if cfg["general"]["add_wiggles"]:
+    H = np.zeros([mtot, nwav+nb*nwav*2], 'complex64')
+else:
+    H = np.zeros([mtot, nwav], 'complex64')    
 Y = np.zeros([mtot], 'complex64')
 r = 0
 for k in range(len(objOis)):
@@ -362,10 +381,19 @@ for k in range(len(objOis)):
             G = np.diag(np.abs(visRefs[k][c, :])/resolved_star_models[k][dit, c, :]*chromatic_coupling[k, :])
 #            else:
 #                G = np.diag((inj_coeffs[k][dit, c, 0]*np.abs(ampRefs[k][c, :])+inj_coeffs[k][dit, c, 1]*(oi.wav - np.min(oi.wav))*1e6*np.abs(ampRefs[k][c, :]))/re#solved_star_models[k][dit, c, :]*chromatic_coupling[k, :])
-            H[r:(r+m), :] = np.dot(oi.visOi.h_matrices[dit, c, 0:m, :], G)
+            # planet contrast model
+            H[r:(r+m), 0:nwav] = np.dot(oi.visOi.h_matrices[dit, c, 0:m, :], G)
             # filter bad datapoints by setting the corresponding columns of H to 0
-            indx = np.where(oi.visOi.flag[dit, c, :])
-            H[r:(r+m), indx] = 0
+            indx = np.where(oi.visOi.flag[dit, c, :])[0]
+            H[r:(r+m), indx] = 0            
+            # wiggles model, fixed in star frame
+            if cfg["general"]["add_wiggles"]:
+                Gspeck = np.diag(np.abs(visRefs[k][c, :])*np.exp(1j*specklePhases[k][c, :]))                
+                HGspeck = np.dot(oi.visOi.h_matrices[dit, c, 0:m, :], Gspeck)            
+                H[r:(r+m), (c+1)*nwav:(c+2)*nwav] = np.dot(HGspeck, np.diag((oi.visOi.phi_values[dit, c, :])))
+                H[r:(r+m), (c+1+nb)*nwav:(c+2+nb)*nwav] = 1j*(np.dot(HGspeck, np.diag((oi.visOi.phi_values[dit, c, :]))))
+                H[r:(r+m), (c+1)*nwav+indx] = 0
+                H[r:(r+m), (c+1+nb)*nwav+indx] = 0                        
             # Y is different from the paper, as we don't really use "U" here. So we don't divide by abs(visRefs[k]), and we add G in the definition of H
             Y[r:r+m] = np.dot(oi.visOi.h_matrices[dit, c, 0:m, :], oi.visOi.visRef[dit, c, :])
             r = r+m
@@ -376,12 +404,16 @@ H2 = cs.conj_extended(H)
 # block calculate W2inv*H2, cov(U2)*W2inv*H2, and pcov(U2)*W2inv*H2
 nb = objOis[0].visOi.nchannel
 nwav = objOis[0].nwav
-W2invH2 = np.zeros([2*mtot, nwav], 'complex64')
-covY2W2invH2 = np.zeros([2*mtot, nwav], 'complex64')
-pcovY2W2invH2 = np.zeros([2*mtot, nwav], 'complex64')
+if cfg["general"]["add_wiggles"]:
+    W2invH2 = np.zeros([2*mtot, nwav+2*nb*nwav], 'complex64')
+    covY2W2invH2 = np.zeros([2*mtot, nwav+2*nb*nwav], 'complex64')
+    pcovY2W2invH2 = np.zeros([2*mtot, nwav+2*nb*nwav], 'complex64')
+else:
+    W2invH2 = np.zeros([2*mtot, nwav], 'complex64')
+    covY2W2invH2 = np.zeros([2*mtot, nwav], 'complex64')
+    pcovY2W2invH2 = np.zeros([2*mtot, nwav], 'complex64')    
 r = 0
 nwav = objOis[0].nwav
-nb = objOis[0].visOi.nchannel
 ndittot = np.sum(np.array([oi.visOi.ndit for oi in objOis]))
 #Ginv = np.zeros([nb*nwav, nb*nwav], 'complex64')    
 
@@ -463,13 +495,15 @@ try:
 except:
     printwar("Problem with the inversion of model. Is the matrix singular? Trying a pseudo inverse instead.")
     B = np.linalg.pinv(np.real(np.dot(cs.adj(H2), W2invH2)))
-C = np.dot(A, B)
+Q = np.dot(A, B)
+C = Q[0:nwav]
 
 # calculate errors
 printinf("Calculating covariance matrix")
 covY2 = np.dot(cs.adj(W2invH2), covY2W2invH2)
 pcovY2 = np.dot(W2invH2.T, pcovY2W2invH2)
-Cerr = np.dot(B, np.dot(0.5*np.real(covY2+pcovY2), B.T))
+Qerr = np.dot(B, np.dot(0.5*np.real(covY2+pcovY2), B.T))
+Cerr = Qerr[0:nwav, 0:nwav]
 
 # save raw contrast spectrum and diagonal error terms in a file
 printinf("Writting spectrum in FITS file")
@@ -512,9 +546,15 @@ saveFitsSpectrum(FIGDIR+"/"+SPECTRUM_FILENAME, wav, C*0, Cerr*0, C, Cerr, header
 for k in range(len(objOis)):
     oi = objOis[k]
     # we'll store the recontructed planet visibilities and the fit directly in the oi object
+    oi.visOi.visWiggles = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex64")    
     oi.visOi.visPlanet = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex64")
     oi.visOi.visPlanetFit = np.zeros([oi.visOi.ndit, oi.visOi.nchannel, oi.nwav], "complex64")    
     for dit, c in itertools.product(range(oi.visOi.ndit), range(oi.visOi.nchannel)):
+        if cfg["general"]["add_wiggles"]:
+            wig = (Q[(c+1)*nwav:(c+2)*nwav]+1j*Q[(c+1+nb)*nwav:(c+2+nb)*nwav])*(np.abs(visRefs[k][c, :])*np.exp(1j*specklePhases[k][c, :])) # in star speckle frame        
+            wig = np.dot(np.diag(oi.visOi.phi_values[dit, c, :]), wig) # in planet frame
+            oi.visOi.visWiggles[dit, c, :] = np.dot(oi.visOi.p_matrices[dit, c, :, :], wig) # projection
+            oi.visOi.visWiggles[dit, c, :] = oi.visOi.visWiggles[dit, c, :]*np.exp(1j*np.angle(visRefs[k][c, :]))
         oi.visOi.visPlanet[dit, c, :] = np.dot(oi.visOi.p_matrices[dit, c, :, :], oi.visOi.visRef[dit, c, :])
         oi.visOi.visPlanet[dit, c, :] = oi.visOi.visPlanet[dit, c, :]*np.exp(1j*np.angle(visRefs[k][c, :]))        
         oi.visOi.visPlanetFit[dit, c, :] = C*np.abs(visRefs[k])[c, :]
@@ -580,7 +620,7 @@ if not(FIGDIR is None):
         for k in range(len(objOis)):
             oi = objOis[k]
             fig = plt.figure(figsize = (10, 8))
-            gPlot.reImPlot(w, (oi.visOi.visPlanet*(1-oi.visOi.flag)).mean(axis = 0)*np.exp(-1j*np.angle(visRefs[k])), subtitles = oi.basenames, fig = fig)
+            gPlot.reImPlot(w, ((oi.visOi.visPlanet-oi.visOi.visWiggles)*(1-oi.visOi.flag)).mean(axis = 0)*np.exp(-1j*np.angle(visRefs[k])), subtitles = oi.basenames, fig = fig)
             gPlot.reImPlot(w, oi.visOi.visPlanetFit.mean(axis = 0)*np.exp(-1j*np.angle(visRefs[k])), fig = fig)
             pdf.savefig()           
     
@@ -588,7 +628,38 @@ if cfg["general"]['save_residuals']:
     for k in range(len(objOis)):
         oi = objOis[k]
         name = oi.filename.split('/')[-1].split('.fits')[0]
-        visRes = (oi.visOi.visPlanet - oi.visOi.visPlanetFit)*np.exp(-1j*np.angle(visRefs[k]))
+        visRes = (oi.visOi.visPlanet - oi.visOi.visPlanetFit - oi.visOi.visWiggles)*np.exp(-1j*np.angle(visRefs[k]))
+        visWig = (oi.visOi.visWiggles)*np.exp(-1j*np.angle(visRefs[k]))        
         np.save(FIGDIR+"/"+name+"_spectrum_residuals.npy", visRes)
+        np.save(FIGDIR+"/"+name+"_wiggles.npy", visWig)        
+    np.save(FIGDIR+"/Q.npy", Q)        
 
-        
+
+"""
+oi = objOis[0]
+    
+wiggles = (Q[nwav:7*nwav]+1j*Q[7*nwav:]).reshape([6, 233])
+wiggleFits = (Q[nwav:7*nwav]+1j*Q[7*nwav:]).reshape([6, 233])
+for c in range(oi.visOi.nchannel):
+    p = np.polyfit(oi.wav*1e6, wiggles[c, :], 10)
+    wiggleFits[c, :] = np.polyval(p, oi.wav*1e6)
+
+fig = plt.figure()
+gPlot.reImPlot(w, wiggles, fig = fig, subtitles = oi.basenames)
+gPlot.reImPlot(w, wiggleFits, fig = fig)
+
+gPlot.reImPlot(w, wiggles-wiggleFits, subtitles = oi.basenames)
+
+for c in range(objOis[0].visOi.nchannel):
+    phi = np.diag(objOis[0].visOi.phi_values[0, c, :])
+    wiggles[c, :] = np.dot(objOis[0].visOi.p_matrices[0, c, :, :], np.dot(phi, wiggles[c, :]*np.abs(visRefs[k][c, :])*np.exp(1j*specklePhase[k][c, :])))
+    wiggleFits[c, :] = np.dot(objOis[0].visOi.p_matrices[0, c, :, :], np.dot(phi, wiggles[c, :]*np.abs(visRefs[k][c, :])*np.exp(1j*specklePhase[k][c, :])))    
+#    wiggles[c, :] = np.dot(objOis[0].visOi.p_matrices[0, c, :, :], np.dot(phi, wiggles[c, :]*np.abs(visRefs[k][c, :])))
+    
+gPlot.reImPlot(w, wiggles, subtitles=oi.basenames)
+gPlot.reImPlot(w, wiggleFits, subtitles=oi.basenames)  
+
+v = 1e-4
+gPlot.reImWaterfall(np.abs(np.concatenate([objOis[k].visOi.visWiggles*np.exp(-1j*np.angle(visRefs[k])) for k in range(len(objOis))])), subtitles=oi.basenames, vmin = -v, vmax = v)
+gPlot.reImWaterfall(np.abs(np.concatenate([(objOis[k].visOi.visPlanet - objOis[k].visOi.visPlanetFit)*np.exp(-1j*np.angle(visRefs[k])) for k in range(len(objOis))])), subtitles=oi.basenames, vmin = -v, vmax = v) 
+"""

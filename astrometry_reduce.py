@@ -208,7 +208,7 @@ if REDUCTION == "astrored":
 
 printinf("Normalizing on-star visibilities to FT coherent flux.")
 for oi in objOis:
-    oi.visOi.scaleVisibilities(1.0/np.abs(oi.visOi.visDataFt).mean(axis = -1))
+    oi.visOi.scaleVisibilities(oi.nwav/np.abs(oi.visOi.visDataFt).sum(axis = -1))
                 
 # replace data by the mean over all DITs if go_fast has been requested in the config file
 if (GO_FAST):
