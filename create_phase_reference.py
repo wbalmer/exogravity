@@ -172,7 +172,7 @@ if REDUCTION == "astrored":
 
 printinf("Normalizing on-star visibilities to FT coherent flux.")
 for oi in starOis+objOis:
-    oi.visOi.scaleVisibilities(1.0/np.abs(oi.visOi.visDataFt).mean(axis = -1))
+    oi.visOi.scaleVisibilities(oi.nwav/np.abs(oi.visOi.visDataFt).sum(axis = -1))
         
 # calculate the very useful w for plotting
 if len(objOis) > 0:

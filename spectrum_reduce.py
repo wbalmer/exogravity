@@ -91,7 +91,7 @@ if __name__ != "__main__":
     cfg = exogravity.cfg
     SPECTRUM_FILENAME = "spectrum.fits"
 
-
+    
 #######################
 # START OF THE SCRIPT #
 #######################
@@ -219,10 +219,8 @@ for c in range(oi.visOi.nchannel):
 # calculate the reference visibility for each OB
 printinf("Retrieving visibility references from fits files")
 visRefs = [oi.visOi.visRef.mean(axis=0)*0 for oi in objOis]
-specklePhases = [oi.visOi.visRef.mean(axis=0)*0 for oi in objOis]
 for k in range(len(objOis)):
     oi = objOis[k]
-    specklePhases[k] = np.angle((oi.visOi.visRef).mean(axis = 0))
     try:
         visRefs[k] = fits.getdata(oi.filename, "EXOGRAV_VISREF").field("EXOGRAV_VISREF")
     except:
@@ -233,6 +231,9 @@ printinf("Subtracting phase reference to each planet OI.")
 for k in range(len(objOis)):
     oi = objOis[k]
     oi.visOi.addPhase(-np.angle(visRefs[k]))
+
+# extract speckle phase for wiggle model
+specklePhases = [np.angle((oi.visOi.visRef).mean(axis = 0)) for oi in objOis]    
 
 # add fake wiggles
 """
@@ -652,14 +653,15 @@ gPlot.reImPlot(w, wiggles-wiggleFits, subtitles = oi.basenames)
 
 for c in range(objOis[0].visOi.nchannel):
     phi = np.diag(objOis[0].visOi.phi_values[0, c, :])
-    wiggles[c, :] = np.dot(objOis[0].visOi.p_matrices[0, c, :, :], np.dot(phi, wiggles[c, :]*np.abs(visRefs[k][c, :])*np.exp(1j*specklePhase[k][c, :])))
-    wiggleFits[c, :] = np.dot(objOis[0].visOi.p_matrices[0, c, :, :], np.dot(phi, wiggles[c, :]*np.abs(visRefs[k][c, :])*np.exp(1j*specklePhase[k][c, :])))    
+    wiggles[c, :] = np.dot(objOis[0].visOi.p_matrices[0, c, :, :], np.dot(phi, wiggles[c, :]*np.abs(visRefs[k][c, :])*np.exp(1j*specklePhases[k][c, :])))
+    wiggleFits[c, :] = np.dot(objOis[0].visOi.p_matrices[0, c, :, :], np.dot(phi, wiggles[c, :]*np.abs(visRefs[k][c, :])*np.exp(1j*specklePhases[k][c, :])))    
 #    wiggles[c, :] = np.dot(objOis[0].visOi.p_matrices[0, c, :, :], np.dot(phi, wiggles[c, :]*np.abs(visRefs[k][c, :])))
     
 gPlot.reImPlot(w, wiggles, subtitles=oi.basenames)
 gPlot.reImPlot(w, wiggleFits, subtitles=oi.basenames)  
 
-v = 1e-4
+v = 1e-3
 gPlot.reImWaterfall(np.abs(np.concatenate([objOis[k].visOi.visWiggles*np.exp(-1j*np.angle(visRefs[k])) for k in range(len(objOis))])), subtitles=oi.basenames, vmin = -v, vmax = v)
 gPlot.reImWaterfall(np.abs(np.concatenate([(objOis[k].visOi.visPlanet - objOis[k].visOi.visPlanetFit)*np.exp(-1j*np.angle(visRefs[k])) for k in range(len(objOis))])), subtitles=oi.basenames, vmin = -v, vmax = v) 
+
 """

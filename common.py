@@ -51,7 +51,7 @@ def findLocalMinimum(chi2Map, xstart, ystart, jump_size = 1):
     x, y = xstart+jump_size, ystart+jump_size
     while not(found):
         submap = borderedMap[x-jump_size:x+jump_size+1, y-jump_size:y+jump_size+1]
-        ind = np.where(submap == np.min(submap))
+        ind = np.where(submap == np.nanmin(submap))
         if (x, y) == (x+ind[0][0]-jump_size, y+ind[1][0]-jump_size):
             found = True
         else:

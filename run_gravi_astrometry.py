@@ -197,11 +197,11 @@ if (dargs["swap_target"] is None):
     print(MSG_FORMAT.format( "Astrometric solution: RA={} mas, DEC={} mas".format(ra_best, dec_best)))
     print(MSG_FORMAT.format( "Errors: stdRA={} mas, stdDEC={} mas, rho={}".format(ra_std, dec_std, rho)))
 
-    if dargs["extract_spectrum"]:
-        print(MSG_FORMAT.format("At {}: entering spectrum_reduce script".format(datetime.utcnow())))
-        from exogravity import spectrum_reduce
-        print(MSG_FORMAT.format("At {}: exiting spectrum_reduce script".format(datetime.utcnow())))
-        print(MSG_FORMAT.format("At {}: spectrum now available in {}/spectrum.fits".format(datetime.utcnow(), dargs["figdir"])))
+#    if dargs["extract_spectrum"]:
+#        print(MSG_FORMAT.format("At {}: entering spectrum_reduce script".format(datetime.utcnow())))
+#        from exogravity import spectrum_reduce
+#        print(MSG_FORMAT.format("At {}: exiting spectrum_reduce script".format(datetime.utcnow())))
+#        print(MSG_FORMAT.format("At {}: spectrum now available in {}/spectrum.fits".format(datetime.utcnow(), dargs["figdir"])))
         
     
 # CASE 2: ON-AXIS WITH SWAP

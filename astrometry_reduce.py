@@ -118,9 +118,9 @@ USE_LOCAL = cfg["general"]["use_local"]
 FIGDIR = cfg["general"]["figdir"]
 SAVE_RESIDUALS = cfg["general"]["save_residuals"]
 POLY_ORDER = cfg["general"]["poly_order"]
-N_OPD = cfg["general"]["n_opd"]
-N_RA = cfg["general"]["n_ra"]
-N_DEC = cfg["general"]["n_dec"]
+N_OPD = cfg["general"]["nopd"]
+N_RA = cfg["general"]["nra"]
+N_DEC = cfg["general"]["ndec"]
 RA_LIM = cfg["general"]["ralim"]
 DEC_LIM = cfg["general"]["declim"]
 EXTENSION = cfg["general"]["extension"]
@@ -376,9 +376,9 @@ if ZOOM > 0:
     # extract init astrometric guess and get the limits of the zoomed map
 #    ra_initguess = np.mean(raBests_initguess)
 #    dec_initguess = np.mean(decBests_initguess)
-    ind = np.where(chi2Maps_initguess.sum(axis = 0) == np.min(chi2Maps_initguess.sum(axis = 0)))
+    ind = np.where(np.nanmean(chi2Maps_initguess, axis = 0) == np.nanmin(np.nanmean(chi2Maps_initguess, axis = 0)))
     ra_initguess = raValues_initguess[ind[0][0]]
-    dec_initguess = decValues_initguess[ind[1][0]]    
+    dec_initguess = decValues_initguess[ind[1][0]]
     RA_LIM = [ra_initguess-(RA_LIM[1]-RA_LIM[0])/(2*ZOOM), ra_initguess+(RA_LIM[1]-RA_LIM[0])/(2*ZOOM)]
     DEC_LIM = [dec_initguess-(DEC_LIM[1]-DEC_LIM[0])/(2*ZOOM), dec_initguess+(DEC_LIM[1]-DEC_LIM[0])/(2*ZOOM)]
         
@@ -419,8 +419,8 @@ for k in range(len(objOis)):
     bestFits.append(phiBest)            
 
 # combine chi2Maps to get best astrometric solution
-chi2Map = np.sum(chi2Maps, axis = 0)
-ind = np.where(chi2Map == np.min(chi2Map))
+chi2Map = np.nansum(chi2Maps, axis = 0)
+ind = np.where(chi2Map == np.nanmin(chi2Map))
 raBest = raValues[ind[0][0]]
 decBest = decValues[ind[1][0]]
     
@@ -429,10 +429,14 @@ raBests_local = np.zeros(len(objOis))
 decBests_local = np.zeros(len(objOis))
 for k in range(len(objOis)):
     printinf("Looking for local chi2 minimun for file {}".format(objOis[k].filename))
-    i, j = np.where(raValues == raBest)[0][0], np.where(decValues == decBest)[0][0]    
-    i, j = findLocalMinimum(chi2Maps[k, :, :], i, j, jump_size=5)
-    raBests_local[k] = raValues[i]
-    decBests_local[k] = decValues[j]
+    if np.isnan(np.nanmin(chi2Maps[k, :, :])):
+        raBests_local[k] = float("nan")
+        decBests_local[k] = float("nan")
+    else:
+        i, j = np.where(raValues == raBest)[0][0], np.where(decValues == decBest)[0][0]    
+        i, j = findLocalMinimum(chi2Maps[k, :, :], i, j, jump_size=5)
+        raBests_local[k] = raValues[i]
+        decBests_local[k] = decValues[j]
     
 # either the global (default) or local minimum can be used as the best initial guess (our simply best astrometry)
 if USE_LOCAL:
@@ -450,25 +454,30 @@ decBests = np.copy(decGuesses)
 formal_errors = []
 if GRADIENT:
     for k in range(len(objOis)):
-        printinf("Performing gradient-descent for file {}".format(objOis[k].filename)) 
-        ndof = 2*objOis[k].visOi.ndit*objOis[k].visOi.nchannel*(objOis[k].visOi.nwav - 6) - 1 # number of dof (*2 because these are complex numbers       
-        chi2 = lambda astro : compute_chi2(objOis[k], astro[0], astro[1])[0]/ndof # only chi2, not kappa. 
-        opt = scipy.optimize.minimize(chi2, x0=[raGuesses[k], decGuesses[k]])
-        raBests[k] = opt["x"][0]
-        decBests[k] = opt["x"][1]
-        # from the Hessian matrix, we can also look for the formal error bars
-        ra_err = np.sqrt(opt["hess_inv"][0, 0])
-        dec_err = np.sqrt(opt["hess_inv"][1, 1])        
-        rho = opt["hess_inv"][0, 1]/np.sqrt(ra_err**2*dec_err**2)
-        formal_errors.append([ra_err, dec_err, rho])
-        # recalculate the best fits corresponding to the gradient_descent
-        ra, dec = opt["x"][0], opt["x"][1]
-        chi2, kappa = compute_chi2(objOis[k], ra, dec)
-        this_u = (ra*objOis[k].visOi.uCoord + dec*objOis[k].visOi.vCoord)/1e7 
-        phase = 2*np.pi*this_u*1e7/3600.0/360.0/1000.0*2*np.pi 
-        phi = np.exp(-1j*phase)*np.abs(visRefs[k])                            
-        phiBest = kappa*phi
-        bestFits_gradient.append(phiBest)
+        if np.isnan(raGuesses[k]):
+            raBests[k] = float("nan")
+            decBests[k] = float("nan")
+            bestFits_gradient.append(oi.viOi.uCoord*0+float("nan")) # best fit is full of nans            
+        else:
+            printinf("Performing gradient-descent for file {}".format(objOis[k].filename)) 
+            ndof = 2*objOis[k].visOi.ndit*objOis[k].visOi.nchannel*(objOis[k].visOi.nwav - 6) - 1 # number of dof (*2 because these are complex numbers       
+            chi2 = lambda astro : compute_chi2(objOis[k], astro[0], astro[1])[0]/ndof # only chi2, not kappa. 
+            opt = scipy.optimize.minimize(chi2, x0=[raGuesses[k], decGuesses[k]])
+            raBests[k] = opt["x"][0]
+            decBests[k] = opt["x"][1]
+            # from the Hessian matrix, we can also look for the formal error bars
+            ra_err = np.sqrt(opt["hess_inv"][0, 0])
+            dec_err = np.sqrt(opt["hess_inv"][1, 1])        
+            rho = opt["hess_inv"][0, 1]/np.sqrt(ra_err**2*dec_err**2)
+            formal_errors.append([ra_err, dec_err, rho])
+            # recalculate the best fits corresponding to the gradient_descent
+            ra, dec = opt["x"][0], opt["x"][1]
+            chi2, kappa = compute_chi2(objOis[k], ra, dec)
+            this_u = (ra*objOis[k].visOi.uCoord + dec*objOis[k].visOi.vCoord)/1e7 
+            phase = 2*np.pi*this_u*1e7/3600.0/360.0/1000.0*2*np.pi 
+            phi = np.exp(-1j*phase)*np.abs(visRefs[k])                            
+            phiBest = kappa*phi
+            bestFits_gradient.append(phiBest)
         
 # calculate the best fits
 for k in range(len(objOis)):
@@ -623,7 +632,7 @@ if not(FIGDIR is None):
             mapExtent = [np.min(raValues_initguess), np.max(raValues_initguess), np.min(decValues_initguess), np.max(decValues_initguess)]
             fig = plt.figure(figsize=(10, 10))
             ax = fig.add_subplot(111)
-            im = ax.imshow(chi2Maps_initguess.sum(axis = 0).T, origin = "lower", extent = mapExtent)
+            im = ax.imshow(np.nansum(chi2Maps_initguess, axis = 0).T, origin = "lower", extent = mapExtent)
             ax.plot([np.min(raValues), np.max(raValues), np.max(raValues), np.min(raValues), np.min(raValues)], [np.min(decValues), np.min(decValues), np.max(decValues), np.max(decValues), np.min(decValues)], "C3")
             divider = make_axes_locatable(ax)
             cax = divider.append_axes("right", size="5%", pad=0.05)

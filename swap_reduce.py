@@ -105,8 +105,8 @@ if __name__ != "__main__":
 # START OF THE SCRIPT #
 #######################        
         
-N_RA = cfg["general"]["n_ra_swap"]
-N_DEC = cfg["general"]["n_dec_swap"]
+N_RA = cfg["general"]["nra_swap"]
+N_DEC = cfg["general"]["ndec_swap"]
 RA_LIM = cfg["general"]["ralim_swap"]
 DEC_LIM = cfg["general"]["declim_swap"]
 EXTENSION = cfg["general"]["extension"]
