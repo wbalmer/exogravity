@@ -233,7 +233,17 @@ for k in range(len(objOis)):
     oi.visOi.addPhase(-np.angle(visRefs[k]))
 
 # extract speckle phase for wiggle model
-specklePhases = [np.angle((oi.visOi.visRef).mean(axis = 0)) for oi in objOis]    
+x_vis = np.linspace(-1,1,oi.nwav)
+X = np.zeros((oi.nwav,POLY_ORDER+1))
+for i in range(POLY_ORDER+1):
+    X[:,i] = np.power(x_vis,i)
+
+specklePhases = np.zeros((len(objOis),6,oi.nwav))
+for k in range(len(objOis)):
+    oi = objOis[k]
+    for c in range(6):
+        coefs = (np.linalg.inv( (X.T).dot(X) ).dot(X.T)).dot( np.angle((oi.visOi.visRef[:,c]).mean(axis = 0)) )
+        specklePhases[k,c] = X.dot(coefs)
 
 # add fake wiggles
 """
