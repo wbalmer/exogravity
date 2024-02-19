@@ -37,6 +37,7 @@ except: # if ruamel not available, switch back to pyyaml, which does not handle 
 import argparse
 # other random stuff
 import glob
+import distutils
 
 # create the parser for command lines arguments
 parser = argparse.ArgumentParser(description=
